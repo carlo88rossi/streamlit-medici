@@ -22,15 +22,15 @@ df_mmg.columns = df_mmg.columns.str.lower()
 df_mmg["provincia"] = df_mmg["provincia"].str.strip()
 df_mmg["microarea"] = df_mmg["microarea"].str.strip()
 
-# **NUOVA SEZIONE: Filtro per la colonna SPEC**
+# **NUOVA SEZIONE: Filtro per la colonna SPEC (ora MMG e PED sono selezionati di default)**
 if 'filtro_spec' not in st.session_state:
-    st.session_state['filtro_spec'] = ["MMG"]  # MMG selezionato di default
+    st.session_state['filtro_spec'] = ["MMG", "PED"]  # MMG e PED selezionati di default
 
 spec_options = ["MMG", "PED", "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 filtro_spec = st.multiselect(
     "🩺 Filtra per tipo di specialista (SPEC)",
     spec_options,
-    default=["MMG"],
+    default=st.session_state['filtro_spec'],
     key="filtro_spec"
 )
 

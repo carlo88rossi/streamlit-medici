@@ -110,10 +110,15 @@ if microarea_scelta != "Ovunque":
 
 # **Mostriamo la tabella risultante**
 st.write("### Medici disponibili")
-colonne_da_mostrare = ["nome medico", "città", "microarea"]
+colonne_da_mostrare = ["nome medico", "città"]  # Ordine iniziale
+
 if fascia_oraria in ["Mattina", "Sempre"]:
     colonne_da_mostrare.append(colonna_mattina)
+
 if fascia_oraria in ["Pomeriggio", "Sempre"]:
     colonne_da_mostrare.append(colonna_pomeriggio)
+
+colonne_da_mostrare.append("indirizzo ambulatorio")  # Aggiungiamo la colonna dell'indirizzo
+colonne_da_mostrare.append("microarea")  # Spostiamo "Microarea" dopo l'indirizzo
 
 st.dataframe(df_filtrato[colonne_da_mostrare])

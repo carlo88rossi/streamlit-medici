@@ -1,4 +1,4 @@
-ùimport streamlit as st
+import streamlit as st
 import pandas as pd
 
 # Funzione per caricare il file Excel

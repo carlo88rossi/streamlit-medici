@@ -1,99 +1,104 @@
 import streamlit as st
 import pandas as pd
-import requests
-from io import BytesIO
-
-# URL corretto per il download diretto da Dropbox
-file_url = "https://www.dropbox.com/scl/fi/xjajne2rivvfrl27ac32t/NUOVO-FOGLIO-MEDICI.xlsx?rlkey=ryndkj5izepxgfmagmeu4ph3m&st=c6x9kqxz&dl=1"
 
 # Funzione per caricare il file Excel
 @st.cache_data
-def load_data(url):
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            file = BytesIO(response.content)  # Converti in file-like object
-            df = pd.read_excel(file, sheet_name="Foglio1")  # Carica il foglio "Foglio1"
-            df = df.rename(columns=lambda x: x.strip())  # Rimuovi spazi nei nomi delle colonne
-            return df
-        else:
-            st.error(f"❌ Errore nel download del file. Codice: {response.status_code}")
-            return None
-    except Exception as e:
-        st.error(f"❌ Errore nel caricamento del file: {e}")
-        return None
+def load_data(file):
+    df = pd.read_excel(file, sheet_name="MMG")
+    return df
 
 # Titolo della Web App
 st.title("📋 Ricerca Medici - Orari di Ricevimento")
 
-# Caricare i dati
-df = load_data(file_url)
+# Caricamento del file Excel
+uploaded_file = st.file_uploader("📂 Carica il file Excel con i medici", type=["xlsx"])
 
-if df is not None:
-    # Sidebar per i filtri
-    st.sidebar.header("🔎 Filtri di Ricerca")
+if uploaded_file is not None:
+    # Carica i dati
+    df = load_data(uploaded_file)
+    
+    # Rimuovo eventuali spazi in eccesso nei nomi delle colonne
+    df = df.rename(columns=lambda x: x.strip())
+    
+    # Intestazione per i filtri (disposti in alto)
+    st.header("🔎 Filtri di Ricerca")
+    
+    # ----- PRIMA RIGA DI FILTRI -----
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        specializzazioni = ["MMG", "PED", "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
+        spec_scelte = st.multiselect("🩺 Specializzazione", specializzazioni, default=["MMG", "PED"])
+    with col2:
+        stato_scelto = st.selectbox("📌 Stato", ["In Target", "Tutti", "Non In Target"], index=0)
+    with col3:
+        # Aggiunta dell'opzione "Tutti" per visualizzare tutti i giorni
+        giorni_settimana = ["Tutti", "LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]
+        giorno_scelto = st.selectbox("📅 Giorno della Settimana", giorni_settimana, index=0)
+    with col4:
+        fascia_oraria = st.selectbox("⏰ Fascia Oraria", ["Mattina", "Pomeriggio"])
 
-    # Filtro per Specializzazione
-    specializzazioni = ["MMG", "PED", "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
-    spec_scelte = st.sidebar.multiselect("🩺 Specializzazione", specializzazioni, default=["MMG", "PED"])
-    df = df[df["SPEC"].isin(spec_scelte)]
-
-    # Filtro per Stato (Default: In Target)
-    stato_scelto = st.sidebar.selectbox("📌 Stato", ["In Target", "Tutti", "Non In Target"], index=0)
-    df["In target"] = df["In target"].fillna('').astype(str).str.upper()
-    if stato_scelto == "In Target":
-        df = df[df["In target"] == "X"]
-    elif stato_scelto == "Non In Target":
-        df = df[df["In target"] != "X"]
-
-    # Filtro per Giorno della Settimana
-    giorni_settimana = ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]
-    giorno_scelto = st.sidebar.selectbox("📅 Giorno della Settimana", giorni_settimana)
-
-    # Filtro per Fascia Oraria
-    fascia_oraria = st.sidebar.selectbox("⏰ Fascia Oraria", ["Mattina", "Pomeriggio"])
-    colonna_orario = f"{giorno_scelto} mattina" if fascia_oraria == "Mattina" else f"{giorno_scelto} pomeriggio"
-
-    # Verifica che la colonna esista
-    if colonna_orario in df.columns:
-        df = df[df[colonna_orario].notna()]
-    else:
-        st.warning(f"La colonna '{colonna_orario}' non esiste nel file!")
-
-    # Filtro per Provincia
-    if "PROVINCIA" in df.columns:
+    # ----- SECONDA RIGA DI FILTRI -----
+    col5, col6, col7 = st.columns(3)
+    with col5:
         province = df["PROVINCIA"].dropna().unique().tolist()
         province.insert(0, "Ovunque")
-        provincia_scelta = st.sidebar.selectbox("🏢 Provincia", province)
-        if provincia_scelta != "Ovunque":
-            df = df[df["PROVINCIA"] == provincia_scelta]
-
-    # Filtro per Microarea
-    if "Microarea" in df.columns:
+        provincia_scelta = st.selectbox("🏢 Provincia", province)
+    with col6:
         microaree = df["Microarea"].dropna().unique().tolist()
         microaree.insert(0, "Ovunque")
-        microarea_scelta = st.sidebar.selectbox("📍 Microarea", microaree)
-        if microarea_scelta != "Ovunque":
-            df = df[df["Microarea"] == microarea_scelta]
+        microarea_scelta = st.selectbox("📍 Microarea", microaree)
+    with col7:
+        escludi_visti = st.checkbox("❌ Escludi medici già visti")
 
-    # Escludere Medici già Visti
-    if "VISTO" in df.columns:
-        df["VISTO"] = df["VISTO"].fillna('').astype(str).str.upper()
-        escludi_visti = st.sidebar.checkbox("❌ Escludi medici già visti")
-        if escludi_visti:
-            df = df[df["VISTO"] != "X"]
+    # ----- APPLICAZIONE DEI FILTRI SUI DATI -----
+    # Filtro per Specializzazione
+    df = df[df["SPEC"].isin(spec_scelte)]
 
-    # Tabella Risultati
-    st.subheader("📋 Medici disponibili")
+    # Filtro per Stato
+    if stato_scelto == "In Target":
+        df = df[df["In target"].str.upper() == "X"]
+    elif stato_scelto == "Non In Target":
+        df = df[df["In target"].isna()]
 
-    colonne_da_mostrare = ["NOME MEDICO", "Città", "Indirizzo ambulatorio", "Microarea"]
-    if colonna_orario in df.columns:
-        colonne_da_mostrare.insert(2, colonna_orario)  # Inserisce orario nella posizione giusta
-        risultati = df[colonne_da_mostrare].rename(columns={colonna_orario: "Orario"})
+    # Filtro per Giorno e Fascia Oraria
+    if giorno_scelto == "Tutti":
+        giorni = ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]
+        orario_cols = [f"{g} mattina" for g in giorni] if fascia_oraria == "Mattina" else [f"{g} pomeriggio" for g in giorni]
+        df = df[df[orario_cols].notna().any(axis=1)]
     else:
-        risultati = df[colonne_da_mostrare]
+        colonna_orario = f"{giorno_scelto} mattina" if fascia_oraria == "Mattina" else f"{giorno_scelto} pomeriggio"
+        df = df[df[colonna_orario].notna()]
 
+    # Filtro per Provincia
+    if provincia_scelta != "Ovunque":
+        df = df[df["PROVINCIA"] == provincia_scelta]
+
+    # Filtro per Microarea
+    if microarea_scelta != "Ovunque":
+        df = df[df["Microarea"] == microarea_scelta]
+
+    # ----- ESCLUSIONE MEDICI GIA' VISTI -----
+    if escludi_visti:
+        # Se le prime 3 colonne del DataFrame rappresentano i flag "visto" (per i 3 mesi), le seleziono in base alla posizione
+        visto_cols = df.columns[:3]
+        # Per ogni riga, se in una qualsiasi delle 3 colonne c'è una "X" (ignorando spazi e case) il medico è considerato già visto
+        df = df[~df[visto_cols].fillna("").apply(
+            lambda row: any(str(cell).strip().upper() == "X" for cell in row),
+            axis=1
+        )]
+
+    # ----- VISUALIZZAZIONE DEI RISULTATI -----
+    st.subheader("📋 Medici disponibili")
+    if giorno_scelto == "Tutti":
+        orario_cols = [f"{g} mattina" for g in ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]] if fascia_oraria == "Mattina" else [f"{g} pomeriggio" for g in ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]]
+        colonne_visualizzate = ["NOME MEDICO", "Città"] + orario_cols + ["Indirizzo ambulatorio", "Microarea"]
+        risultati = df[colonne_visualizzate]
+    else:
+        colonna_orario = f"{giorno_scelto} mattina" if fascia_oraria == "Mattina" else f"{giorno_scelto} pomeriggio"
+        risultati = df[["NOME MEDICO", "Città", colonna_orario, "Indirizzo ambulatorio", "Microarea"]].rename(
+            columns={colonna_orario: "Orario"}
+        )
     st.dataframe(risultati)
 
 else:
-    st.error("❌ Impossibile caricare il file Excel.")
+    st.info("🔹 Carica un file Excel per iniziare la ricerca!")

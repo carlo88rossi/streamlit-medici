@@ -3,10 +3,16 @@ import pandas as pd
 
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
-# Pulsante per azzerare i filtri
+# 🔄 Pulsante per azzerare i filtri riportandoli ai valori predefiniti
 def azzera_filtri():
-    for key in st.session_state.keys():
-        del st.session_state[key]
+    st.session_state["filtro_spec"] = ["MMG", "PED"]
+    st.session_state["filtro_target"] = "In target"
+    st.session_state["filtro_visto"] = "Non Visto"
+    st.session_state["giorno_scelto"] = "lunedì"
+    st.session_state["fascia_oraria"] = "Mattina e Pomeriggio"
+    st.session_state["provincia_scelta"] = "Ovunque"
+    st.session_state["microarea_scelta"] = "Ovunque"
+    st.rerun()  # 🔄 Ricarica l'app per applicare i valori predefiniti
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 
@@ -25,25 +31,56 @@ if file:
     df_mmg["provincia"] = df_mmg["provincia"].str.strip()
     df_mmg["microarea"] = df_mmg["microarea"].str.strip()
 
-    # Filtri principali
+    # Filtri principali con valori predefiniti
     spec_options = ["MMG", "PED", "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
     filtro_spec = st.multiselect(
         "🩺 Filtra per tipo di specialista (SPEC)",
         spec_options,
-        default=["MMG", "PED"]  # MMG e PED selezionati di default
+        default=st.session_state.get("filtro_spec", ["MMG", "PED"]),
+        key="filtro_spec"
     )
 
-    filtro_target = st.selectbox("🎯 Scegli il tipo di medici", ["In target", "Non in target", "Tutti"], index=0)
+    filtro_target = st.selectbox(
+        "🎯 Scegli il tipo di medici",
+        ["In target", "Non in target", "Tutti"],
+        index=["In target", "Non in target", "Tutti"].index(st.session_state.get("filtro_target", "In target")),
+        key="filtro_target"
+    )
 
-    filtro_visto = st.selectbox("👀 Filtra per medici 'VISTO'", ["Tutti", "Visto", "Non Visto"], index=2)
+    filtro_visto = st.selectbox(
+        "👀 Filtra per medici 'VISTO'",
+        ["Tutti", "Visto", "Non Visto"],
+        index=["Tutti", "Visto", "Non Visto"].index(st.session_state.get("filtro_visto", "Non Visto")),
+        key="filtro_visto"
+    )
 
-    giorno_scelto = st.selectbox("📅 Scegli un giorno della settimana", ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"])
+    giorno_scelto = st.selectbox(
+        "📅 Scegli un giorno della settimana",
+        ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"],
+        index=["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"].index(st.session_state.get("giorno_scelto", "lunedì")),
+        key="giorno_scelto"
+    )
 
-    fascia_oraria = st.radio("🌞 Scegli la fascia oraria", ["Mattina", "Pomeriggio", "Mattina e Pomeriggio"], index=2)
+    fascia_oraria = st.radio(
+        "🌞 Scegli la fascia oraria",
+        ["Mattina", "Pomeriggio", "Mattina e Pomeriggio"],
+        index=["Mattina", "Pomeriggio", "Mattina e Pomeriggio"].index(st.session_state.get("fascia_oraria", "Mattina e Pomeriggio")),
+        key="fascia_oraria"
+    )
 
-    provincia_scelta = st.selectbox("📍 Scegli la Provincia", ["Ovunque"] + sorted(df_mmg["provincia"].dropna().unique().tolist()))
+    provincia_scelta = st.selectbox(
+        "📍 Scegli la Provincia",
+        ["Ovunque"] + sorted(df_mmg["provincia"].dropna().unique().tolist()),
+        index=(["Ovunque"] + sorted(df_mmg["provincia"].dropna().unique().tolist())).index(st.session_state.get("provincia_scelta", "Ovunque")),
+        key="provincia_scelta"
+    )
 
-    microarea_scelta = st.selectbox("📌 Scegli la Microarea", ["Ovunque"] + sorted(df_mmg["microarea"].dropna().unique().tolist()))
+    microarea_scelta = st.selectbox(
+        "📌 Scegli la Microarea",
+        ["Ovunque"] + sorted(df_mmg["microarea"].dropna().unique().tolist()),
+        index=(["Ovunque"] + sorted(df_mmg["microarea"].dropna().unique().tolist())).index(st.session_state.get("microarea_scelta", "Ovunque")),
+        key="microarea_scelta"
+    )
 
     # **Applicazione dei filtri**
     df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]

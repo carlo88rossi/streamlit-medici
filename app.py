@@ -140,9 +140,9 @@ if uploaded_file is not None:
     unique_medici = risultati["NOME MEDICO"].nunique()
     st.markdown(f"**Numero di medici trovati: {unique_medici}**")
     
-    # ----- CONFIGURAZIONE DI AGGRID CON AUTO-SIZE DELLE COLONNE -----
+    # ----- CONFIGURAZIONE DI AGGRID CON AUTO-SIZE DELLE COLONNE E COLONNE NON MOVIBILI -----
     gb = GridOptionsBuilder.from_dataframe(risultati)
-    gb.configure_default_column(sortable=True, filter=True, suppressMenu=True)
+    gb.configure_default_column(sortable=True, filter=True, suppressMenu=True, suppressMovable=True)
     
     # Callback JS per adattare la larghezza delle colonne al contenuto
     auto_size_js = JsCode("""

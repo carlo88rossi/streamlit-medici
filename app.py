@@ -12,6 +12,7 @@ def azzera_filtri():
     st.session_state["fascia_oraria"] = "Mattina e Pomeriggio"
     st.session_state["provincia_scelta"] = "Ovunque"
     st.session_state["microarea_scelta"] = "Ovunque"
+    st.session_state["search_query"] = ""  # Resetta anche la barra di ricerca
     st.rerun()  # 🔄 Ricarica l'app per applicare i valori predefiniti
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
@@ -90,21 +91,6 @@ if file:
     elif filtro_target == "Non in target":
         df_mmg = df_mmg[df_mmg["in target"].isna()]
 
-    colonne_visto = df_mmg.columns[:3].tolist()
-
-    def check_visto(row):
-        for col in colonne_visto:
-            if isinstance(row[col], str) and row[col].lower() == "x":
-                return "x"
-        return None
-
-    df_mmg["visto_combinato"] = df_mmg.apply(check_visto, axis=1)
-
-    if filtro_visto == "Visto":
-        df_mmg = df_mmg[df_mmg["visto_combinato"] == "x"]
-    elif filtro_visto == "Non Visto":
-        df_mmg = df_mmg[df_mmg["visto_combinato"].isna()]
-
     colonna_mattina = f"{giorno_scelto} mattina".lower()
     colonna_pomeriggio = f"{giorno_scelto} pomeriggio".lower()
 
@@ -120,6 +106,18 @@ if file:
 
     if microarea_scelta != "Ovunque":
         df_filtrato = df_filtrato[df_filtrato["microarea"] == microarea_scelta]
+
+    # 🔍 Barra di ricerca per filtrare i risultati in tempo reale
+    search_query = st.text_input("🔎 Cerca nei risultati", placeholder="Inserisci nome, città, microarea, ecc.", key="search_query")
+
+    # **Escludi la colonna "provincia" dalla ricerca**
+    if search_query:
+        query = search_query.lower()
+        df_filtrato = df_filtrato[
+            df_filtrato.drop(columns=["provincia"], errors="ignore")  # Rimuove "provincia" dalla ricerca
+            .astype(str)
+            .apply(lambda row: query in " ".join(row).lower(), axis=1)
+        ]
 
     # **Visualizzazione dei risultati con "Microarea" per ultima**
     st.write("### Medici disponibili")

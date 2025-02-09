@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from st_aggrid import AgGrid, GridOptionsBuilder
+from st_aggrid.shared import JsCode  # Import necessario per eseguire codice JS personalizzato
 
 # Funzione per caricare il file Excel
 @st.cache_data
@@ -25,64 +26,57 @@ if uploaded_file is not None:
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         specializzazioni = ["MMG", "PED", "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
-        spec_scelte = st.multiselect(
-            "🩺 Specializzazione",
-            specializzazioni,
-            default=["MMG", "PED"],
-            key="specializzazione"
-        )
+        spec_scelte = st.multiselect("🩺 Specializzazione", specializzazioni,
+                                      default=["MMG", "PED"],
+                                      key="specializzazione")
     with col2:
-        stato_scelto = st.selectbox(
-            "📌 Stato",
-            ["In Target", "Tutti", "Non In Target"],
-            index=0,
-            key="stato"
-        )
+        stato_scelto = st.selectbox("📌 Stato",
+                                    ["In Target", "Tutti", "Non In Target"],
+                                    index=0,
+                                    key="stato")
     with col3:
         giorni_settimana = ["Tutti", "LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]
-        giorno_scelto = st.selectbox(
-            "📅 Giorno della Settimana",
-            giorni_settimana,
-            index=0,
-            key="giorno"
-        )
+        giorno_scelto = st.selectbox("📅 Giorno della Settimana",
+                                     giorni_settimana,
+                                     index=0,
+                                     key="giorno")
     with col4:
-        fascia_oraria = st.selectbox(
-            "⏰ Fascia Oraria",
-            ["Mattina", "Pomeriggio"],
-            key="fascia"
-        )
+        fascia_oraria = st.selectbox("⏰ Fascia Oraria",
+                                     ["Mattina", "Pomeriggio"],
+                                     key="fascia")
     
     # ----- SECONDA RIGA DI FILTRI -----
     col5, col6, col7 = st.columns(3)
     with col5:
         province = df["PROVINCIA"].dropna().unique().tolist()
         province.insert(0, "Ovunque")
-        provincia_scelta = st.selectbox(
-            "🏢 Provincia",
-            province,
-            key="provincia"
-        )
+        provincia_scelta = st.selectbox("🏢 Provincia",
+                                        province,
+                                        key="provincia")
     with col6:
         microaree = df["Microarea"].dropna().unique().tolist()
         microaree.insert(0, "Ovunque")
-        microarea_scelta = st.selectbox(
-            "📍 Microarea",
-            microaree,
-            key="microarea"
-        )
+        microarea_scelta = st.selectbox("📍 Microarea",
+                                        microaree,
+                                        key="microarea")
     with col7:
-        escludi_visti = st.checkbox(
-            "❌ Escludi medici già visti",
-            key="visti"
-        )
+        escludi_visti = st.checkbox("❌ Escludi medici già visti",
+                                    key="visti")
     
     # ----- TERZA RIGA: CAMPO DI RICERCA -----
-    search_query = st.text_input(
-        "🔍 Cerca nei risultati",
-        placeholder="Inserisci parole chiave...",
-        key="search_query"
-    )
+    search_query = st.text_input("🔍 Cerca nei risultati",
+                                 placeholder="Inserisci parole chiave...",
+                                 key="search_query")
+    
+    # ----- BOTTONCINO PER AZZERARE I FILTRI -----
+    if st.button("🔄 Azzerare tutti i filtri"):
+        # Specifica le chiavi dei widget da resettare
+        keys_to_reset = ["specializzazione", "stato", "giorno", "fascia",
+                         "provincia", "microarea", "visti", "search_query"]
+        for key in keys_to_reset:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.experimental_rerun()
     
     # ----- APPLICAZIONE DEI FILTRI SUI DATI -----
     # Filtro per Specializzazione
@@ -97,18 +91,12 @@ if uploaded_file is not None:
     # Filtro per Giorno e Fascia Oraria
     if giorno_scelto == "Tutti":
         giorni = ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]
-        orario_cols = (
-            [f"{g} mattina" for g in giorni]
-            if fascia_oraria == "Mattina"
-            else [f"{g} pomeriggio" for g in giorni]
-        )
+        orario_cols = [f"{g} mattina" for g in giorni] if fascia_oraria == "Mattina" \
+                      else [f"{g} pomeriggio" for g in giorni]
         df = df[df[orario_cols].notna().any(axis=1)]
     else:
-        colonna_orario = (
-            f"{giorno_scelto} mattina"
-            if fascia_oraria == "Mattina"
-            else f"{giorno_scelto} pomeriggio"
-        )
+        colonna_orario = f"{giorno_scelto} mattina" if fascia_oraria == "Mattina" \
+                         else f"{giorno_scelto} pomeriggio"
         df = df[df[colonna_orario].notna()]
     
     # Filtro per Provincia
@@ -119,57 +107,57 @@ if uploaded_file is not None:
     if microarea_scelta != "Ovunque":
         df = df[df["Microarea"] == microarea_scelta]
     
-    # Filtro per Medici già Visti (controlla le prime 3 colonne)
+    # Filtro per Medici già Visti (verifica le prime 3 colonne del DataFrame)
     if escludi_visti:
         visto_cols = df.columns[:3]
-        df = df[
-            ~df[visto_cols].fillna("").apply(
-                lambda row: any(str(cell).strip().upper() == "X" for cell in row),
-                axis=1,
-            )
-        ]
+        df = df[~df[visto_cols].fillna("").apply(
+            lambda row: any(str(cell).strip().upper() == "X" for cell in row),
+            axis=1
+        )]
     
     # Filtro di ricerca testuale
     if search_query:
         query = search_query.lower()
-        df = df[
-            df.fillna("")
-            .astype(str)
-            .apply(lambda row: query in " ".join(row).lower(), axis=1)
-        ]
+        df = df[df.fillna('').astype(str).apply(
+            lambda row: query in " ".join(row).lower(),
+            axis=1
+        )]
     
     # ----- CREAZIONE DEI RISULTATI -----
     if giorno_scelto == "Tutti":
-        orario_cols = (
-            [f"{g} mattina" for g in ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]]
-            if fascia_oraria == "Mattina"
-            else [f"{g} pomeriggio" for g in ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]]
-        )
-        risultati = df[
-            ["NOME MEDICO", "Città"] + orario_cols + ["Indirizzo ambulatorio", "Microarea"]
-        ]
+        orario_cols = [f"{g} mattina" for g in ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]] \
+                      if fascia_oraria == "Mattina" \
+                      else [f"{g} pomeriggio" for g in ["LUNEDì", "MARTEDì", "MERCOLEDì", "GIOVEDì", "VENERDì"]]
+        risultati = df[["NOME MEDICO", "Città"] + orario_cols + ["Indirizzo ambulatorio", "Microarea"]]
     else:
-        colonna_orario = (
-            f"{giorno_scelto} mattina"
-            if fascia_oraria == "Mattina"
-            else f"{giorno_scelto} pomeriggio"
+        colonna_orario = f"{giorno_scelto} mattina" if fascia_oraria == "Mattina" \
+                         else f"{giorno_scelto} pomeriggio"
+        risultati = df[["NOME MEDICO", "Città", colonna_orario, "Indirizzo ambulatorio", "Microarea"]].rename(
+            columns={colonna_orario: "Orario"}
         )
-        risultati = df[
-            ["NOME MEDICO", "Città", colonna_orario, "Indirizzo ambulatorio", "Microarea"]
-        ].rename(columns={colonna_orario: "Orario"})
     
-    # Contatore di medici unici
+    # ----- CONTATORE MEDICI (medici unici) -----
     unique_medici = risultati["NOME MEDICO"].nunique()
     st.markdown(f"**Numero di medici trovati: {unique_medici}**")
     
-    # ----- VISUALIZZAZIONE DEI RISULTATI CON AGGRID -----
+    # ----- CONFIGURAZIONE DI AGGRID CON AUTO-SIZE DELLE COLONNE -----
     gb = GridOptionsBuilder.from_dataframe(risultati)
     gb.configure_default_column(sortable=True, filter=True, suppressMenu=True)
+    
+    # Callback JS per adattare la larghezza delle colonne al contenuto
+    auto_size_js = JsCode("""
+    function(params) {
+        var allColumnIds = params.columnApi.getAllColumns().map(function(column) {
+            return column.colId;
+        });
+        params.columnApi.autoSizeColumns(allColumnIds, false);
+    }
+    """)
+    gb.configure_grid_options(onGridReady=auto_size_js)
     grid_options = gb.build()
     
-    AgGrid(
-        risultati, gridOptions=grid_options, height=400, fit_columns_on_grid_load=True
-    )
+    # Visualizzazione dei risultati con AgGrid (è necessario allow_unsafe_jscode per eseguire il codice JS personalizzato)
+    AgGrid(risultati, gridOptions=grid_options, height=400, allow_unsafe_jscode=True)
     
 else:
     st.info("🔹 Carica un file Excel per iniziare la ricerca!")

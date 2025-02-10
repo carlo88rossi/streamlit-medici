@@ -61,8 +61,7 @@ if file:
         key="filtro_visto"
     )
     
-    # 4. Selezione del giorno della settimana
-    # Aggiunta l'opzione "sempre" e impostata di default
+    # 4. Selezione del giorno della settimana (opzione "sempre" impostata di default)
     giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
@@ -104,25 +103,18 @@ if file:
         df_mmg = df_mmg[df_mmg["in target"].isna()]
     
     # --- FILTRO "VISTO" ---
-    # Se la colonna "visto" esiste (nel tuo file Excel si chiama "VISTO" e diventa "visto")
-    if "visto" in df_mmg.columns:
-        df_mmg["visto"] = df_mmg["visto"].fillna("").astype(str)
-        if filtro_visto == "Visto":
-            df_mmg = df_mmg[df_mmg["visto"].str.lower() == "x"]
-        elif filtro_visto == "Non Visto":
-            df_mmg = df_mmg[df_mmg["visto"].str.lower() != "x"]
-    else:
-        # Se la colonna "visto" non esiste, si può usare un fallback (es. le prime tre colonne)
-        visto_cols = df_mmg.columns[:3]
-        df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower() if isinstance(s, str) else s)
-        if filtro_visto == "Visto":
-            df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
-        elif filtro_visto == "Non Visto":
-            df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
+    # Utilizza SEMPRE le prime tre colonne per verificare la presenza della "x" (case-insensitive)
+    visto_cols = df_mmg.columns[:3]
+    df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower() if isinstance(s, str) else s)
+    if filtro_visto == "Visto":
+        # Mostra solo i medici per cui almeno una delle prime tre colonne contiene "x"
+        df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
+    elif filtro_visto == "Non Visto":
+        # Esclude i medici per cui almeno una delle prime tre colonne contiene "x"
+        df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
     
     # --- FILTRI PER GIORNO E FASCIA ORARIA ---
     if giorno_scelto == "sempre":
-        # Mostra tutte le colonne di ricevimento per ogni giorno in base alla fascia oraria scelta
         giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
         colonne_giorni = []
         for g in giorni_settimana:
@@ -133,20 +125,16 @@ if file:
             else:  # "Mattina e Pomeriggio"
                 colonne_giorni.append(f"{g} mattina".lower())
                 colonne_giorni.append(f"{g} pomeriggio".lower())
-        # Verifica che le colonne esistano
         for col in colonne_giorni:
             if col not in df_mmg.columns:
                 st.error(f"La colonna '{col}' non esiste nel file Excel.")
                 st.stop()
-        # Filtra le righe che hanno almeno un valore non nullo in una qualsiasi di queste colonne
         df_filtrato = df_mmg[df_mmg[colonne_giorni].notna().any(axis=1)]
-        # Definisce le colonne da mostrare (inserisce "indirizzo ambulatorio" prima di "microarea")
+        # Le colonne da mostrare includono "indirizzo ambulatorio" PRIMA di "microarea"
         colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea"]
     else:
-        # Per un giorno specifico
         colonna_mattina = f"{giorno_scelto} mattina".lower()
         colonna_pomeriggio = f"{giorno_scelto} pomeriggio".lower()
-        # Verifica l'esistenza delle colonne richieste in base alla fascia oraria
         if fascia_oraria in ["Mattina", "Mattina e Pomeriggio"]:
             if colonna_mattina not in df_mmg.columns:
                 st.error(f"La colonna '{colonna_mattina}' non esiste nel file Excel.")
@@ -155,18 +143,16 @@ if file:
             if colonna_pomeriggio not in df_mmg.columns:
                 st.error(f"La colonna '{colonna_pomeriggio}' non esiste nel file Excel.")
                 st.stop()
-        # Applica il filtro in base alla fascia oraria
         if fascia_oraria == "Mattina":
             df_filtrato = df_mmg[df_mmg[colonna_mattina].notna()]
             colonne_da_mostrare = ["nome medico", "città", colonna_mattina, "indirizzo ambulatorio", "microarea"]
         elif fascia_oraria == "Pomeriggio":
             df_filtrato = df_mmg[df_mmg[colonna_pomeriggio].notna()]
             colonne_da_mostrare = ["nome medico", "città", colonna_pomeriggio, "indirizzo ambulatorio", "microarea"]
-        else:  # "Mattina e Pomeriggio"
+        else:
             df_filtrato = df_mmg[df_mmg[colonna_mattina].notna() | df_mmg[colonna_pomeriggio].notna()]
             colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio, "indirizzo ambulatorio", "microarea"]
     
-    # Applica i filtri geografici (se selezionati e se le colonne esistono)
     if provincia_scelta != "Ovunque" and "provincia" in df_mmg.columns:
         df_filtrato = df_filtrato[df_filtrato["provincia"] == provincia_scelta]
     if microarea_scelta != "Ovunque" and "microarea" in df_mmg.columns:
@@ -189,18 +175,21 @@ if file:
     st.write("### Medici disponibili")
     
     # --- CONFIGURAZIONE E VISUALIZZAZIONE CON AgGrid ---
+    # Imposta anche la proprietà per non permettere lo spostamento delle colonne
     gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-    gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100)
-    gb.configure_column("nome medico", width=150, resizable=False)
-    gb.configure_column("città", width=120, resizable=False)
+    gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
+    gb.configure_column("nome medico", width=150, resizable=False, lockPosition=True)
+    gb.configure_column("città", width=120, resizable=False, lockPosition=True)
     # Configura le colonne relative al ricevimento
     for col in colonne_da_mostrare:
         if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea"]:
-            gb.configure_column(col, width=100, resizable=False)
-    gb.configure_column("indirizzo ambulatorio", width=150, resizable=False)
-    gb.configure_column("microarea", width=100, resizable=False)
+            gb.configure_column(col, width=100, resizable=False, lockPosition=True)
+    gb.configure_column("indirizzo ambulatorio", width=150, resizable=False, lockPosition=True)
+    gb.configure_column("microarea", width=100, resizable=False, lockPosition=True)
     
     grid_options = gb.build()
+    # Inoltre, impediamo lo spostamento delle colonne a livello di grid
+    grid_options["suppressMovableColumns"] = True
     
     AgGrid(df_filtrato[colonne_da_mostrare],
            gridOptions=grid_options,

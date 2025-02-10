@@ -30,8 +30,8 @@ st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 # --- PULSANTE SPECIALISTI 👨‍⚕️👩‍⚕️ ---
 if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     current_selection = st.session_state.get("filtro_spec", default_spec)
-    # Se la selezione corrente è quella di default (solo MMG e PED), allora impostiamo la selezione a quella degli specialisti extra;
-    # altrimenti, ripristiniamo la selezione di default.
+    # Se la selezione corrente è quella di default (solo MMG e PED), allora impostiamo la selezione alle specializzazioni extra;
+    # altrimenti, ripristiniamo lo stato di default.
     if current_selection == default_spec:
         new_selection = spec_extra
     else:
@@ -59,7 +59,6 @@ if file:
     # ---------------------------
     # PRIMO FILTRO: CICLO DEI MESI
     # ---------------------------
-    # Questo filtro determina su quali colonne (relative ai mesi) applicare il filtro "visto"
     ciclo_options = [
         "Tutti",
         "Ciclo 1 (Gen-Feb-Mar)",
@@ -67,8 +66,14 @@ if file:
         "Ciclo 3 (Lug-Ago-Set)",
         "Ciclo 4 (Ott-Nov-Dic)"
     ]
-    # Utilizziamo un menu a tendina con il label "💠 SELEZIONA CICLO"
+    # Menu a tendina con il label "💠 SELEZIONA CICLO"
     ciclo_scelto = st.selectbox("💠 SELEZIONA CICLO", ciclo_options, key="ciclo_scelto")
+    
+    # ---------------------------
+    # NUOVO FILTRO: FREQUENZA
+    # ---------------------------
+    # Se attivo, mostra solo i medici per cui nella colonna "frequenza" è presente una "x"
+    filtro_frequenza = st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza")
     
     # ---------------------------
     # 1. Filtro per tipo di specialista (spec)
@@ -97,12 +102,13 @@ if file:
         df_mmg = df_mmg[df_mmg["in target"].isna()]
     
     # ---------------------------
-    # 3. Filtro per "visto" (Tutti / Visto / Non Visto)
+    # 3. Filtro per "visto" (Tutti / Visto / Non Visto / Visita VIP)
     # ---------------------------
+    # Aggiungiamo l'opzione "Visita VIP" per filtrare i medici segnati con "v"
     filtro_visto = st.selectbox(
         "👀 Filtra per medici 'VISTO'",
-        ["Tutti", "Visto", "Non Visto"],
-        index=["Tutti", "Visto", "Non Visto"].index(st.session_state.get("filtro_visto", "Non Visto")),
+        ["Tutti", "Visto", "Non Visto", "Visita VIP"],
+        index=["Tutti", "Visto", "Non Visto", "Visita VIP"].index(st.session_state.get("filtro_visto", "Non Visto")),
         key="filtro_visto"
     )
     
@@ -132,6 +138,17 @@ if file:
         df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Non Visto":
         df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
+    elif filtro_visto == "Visita VIP":
+        df_mmg = df_mmg[df_mmg[visto_cols].eq("v").any(axis=1)]
+    
+    # ---------------------------
+    # APPLICAZIONE DEL FILTRO FREQUENZA
+    # ---------------------------
+    if filtro_frequenza:
+        if "frequenza" in df_mmg.columns:
+            df_mmg = df_mmg[df_mmg["frequenza"].str.strip().str.lower() == "x"]
+        else:
+            st.warning("La colonna 'frequenza' non è presente nel file Excel.")
     
     # ---------------------------
     # 4. Filtro per giorno della settimana

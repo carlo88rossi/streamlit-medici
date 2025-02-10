@@ -4,22 +4,97 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
 
+# Configurazione della pagina
+st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
+
+# CSS personalizzato: design pulito e leggibile
+st.markdown(
+    """
+    <style>
+    /* Sfondo e colori base */
+    body {
+        background-color: #f8f9fa;
+        color: #212529;
+    }
+    [data-testid="stAppViewContainer"] {
+        background-color: #f8f9fa;
+    }
+    /* Titolo */
+    h1 {
+        font-family: 'Helvetica Neue', sans-serif;
+        font-size: 2.5rem;
+        text-align: center;
+        color: #007bff;
+        margin-bottom: 1.5rem;
+    }
+    /* Pulsanti */
+    div.stButton > button {
+        background-color: #007bff;
+        color: #ffffff;
+        border: none;
+        border-radius: 4px;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        transition: background-color 0.3s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #0056b3;
+    }
+    /* File uploader */
+    .stFileUploader {
+        background-color: #ffffff;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        padding: 0.75rem;
+    }
+    /* Widget di input e selezione */
+    .css-1d391kg, .stSelectbox, .stTextInput input {
+        font-size: 1rem;
+        padding: 0.5rem;
+    }
+    /* Regole per dispositivi mobili */
+    @media only screen and (max-width: 600px) {
+        h1 {
+            font-size: 2rem;
+        }
+        div.stButton > button {
+            width: 100% !important;
+            margin-bottom: 0.5rem;
+        }
+    }
+    /* Personalizzazione AgGrid */
+    .ag-root-wrapper {
+        border: 1px solid #dee2e6 !important;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    .ag-header-cell-label {
+        font-weight: bold;
+        color: #343a40;
+    }
+    .ag-row {
+        font-size: 0.9rem;
+    }
+    </style>
+    """, unsafe_allow_html=True
+)
+
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
 # Definizione delle specializzazioni di default ed extra
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
-# 🔄 Funzione per azzerare i filtri riportandoli ai valori predefiniti
+# Funzione per azzerare i filtri (reset dei valori di sessione)
 def azzera_filtri():
     st.session_state["filtro_spec"] = default_spec
     st.session_state["filtro_target"] = "In target"
     st.session_state["filtro_visto"] = "Non Visto"
-    st.session_state["giorno_scelto"] = "sempre"   # Impostato di default su "sempre"
+    st.session_state["giorno_scelto"] = "sempre"  # default: sempre
     st.session_state["fascia_oraria"] = "Mattina e Pomeriggio"
     st.session_state["provincia_scelta"] = "Ovunque"
     st.session_state["microarea_scelta"] = "Ovunque"
-    st.session_state["search_query"] = ""  # Resetta anche la barra di ricerca
+    st.session_state["search_query"] = ""  # reset della barra di ricerca
     try:
         st.experimental_rerun()
     except AttributeError:
@@ -30,8 +105,6 @@ st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 # --- PULSANTE SPECIALISTI 👨‍⚕️👩‍⚕️ ---
 if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     current_selection = st.session_state.get("filtro_spec", default_spec)
-    # Se la selezione corrente è quella di default (solo MMG e PED), allora impostiamo la selezione alle specializzazioni extra;
-    # altrimenti, ripristiniamo lo stato di default.
     if current_selection == default_spec:
         new_selection = spec_extra
     else:
@@ -49,7 +122,7 @@ if file:
     xls = pd.ExcelFile(file)
     df_mmg = pd.read_excel(xls, sheet_name="MMG")
     
-    # Uniforma i nomi delle colonne in minuscolo e rimuove eventuali spazi extra per "provincia" e "microarea"
+    # Uniforma i nomi delle colonne in minuscolo e rimuove spazi extra
     df_mmg.columns = df_mmg.columns.str.lower()
     if "provincia" in df_mmg.columns:
         df_mmg["provincia"] = df_mmg["provincia"].str.strip()
@@ -66,17 +139,24 @@ if file:
         "Ciclo 3 (Lug-Ago-Set)",
         "Ciclo 4 (Ott-Nov-Dic)"
     ]
-    # Menu a tendina con il label "💠 SELEZIONA CICLO"
-    ciclo_scelto = st.selectbox("💠 SELEZIONA CICLO", ciclo_options, key="ciclo_scelto")
+    current_date = datetime.datetime.now()
+    month_names = {1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio", 6: "Giugno",
+                   7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre"}
+    current_month_name = month_names[current_date.month]
+    if current_date.month in [1, 2, 3]:
+        default_cycle_index = 1
+    elif current_date.month in [4, 5, 6]:
+        default_cycle_index = 2
+    elif current_date.month in [7, 8, 9]:
+        default_cycle_index = 3
+    else:
+        default_cycle_index = 4
+
+    label_ciclo = f"💠 SELEZIONA CICLO ({current_month_name} {current_date.year})"
+    ciclo_scelto = st.selectbox(label_ciclo, ciclo_options, index=default_cycle_index, key="ciclo_scelto")
     
     # ---------------------------
-    # NUOVO FILTRO: FREQUENZA
-    # ---------------------------
-    # Se attivo, mostra solo i medici per cui nella colonna "frequenza" è presente una "x"
-    filtro_frequenza = st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza")
-    
-    # ---------------------------
-    # 1. Filtro per tipo di specialista (spec)
+    # 1. Filtro per specialista (spec)
     # ---------------------------
     spec_options = default_spec + spec_extra
     filtro_spec = st.multiselect(
@@ -104,7 +184,6 @@ if file:
     # ---------------------------
     # 3. Filtro per "visto" (Tutti / Visto / Non Visto / Visita VIP)
     # ---------------------------
-    # Aggiungiamo l'opzione "Visita VIP" per filtrare i medici segnati con "v"
     filtro_visto = st.selectbox(
         "👀 Filtra per medici 'VISTO'",
         ["Tutti", "Visto", "Non Visto", "Visita VIP"],
@@ -112,9 +191,8 @@ if file:
         key="filtro_visto"
     )
     
-    # Determiniamo le colonne da utilizzare per il filtro "visto" in base al ciclo scelto
     if ciclo_scelto == "Tutti":
-        all_months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", 
+        all_months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
                       "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
         visto_cols = [col for col in all_months if col in df_mmg.columns]
         if not visto_cols:
@@ -132,7 +210,6 @@ if file:
             st.warning(f"Non sono state trovate colonne per {ciclo_scelto}.")
             visto_cols = df_mmg.columns[:3]
     
-    # Applica il lowercase e gestisce eventuali NaN nelle colonne del filtro "visto"
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower() if isinstance(s, str) else s)
     if filtro_visto == "Visto":
         df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
@@ -142,8 +219,9 @@ if file:
         df_mmg = df_mmg[df_mmg[visto_cols].eq("v").any(axis=1)]
     
     # ---------------------------
-    # APPLICAZIONE DEL FILTRO FREQUENZA
+    # Nuovo filtro: FREQUENZA (dopo "VISTO")
     # ---------------------------
+    filtro_frequenza = st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza")
     if filtro_frequenza:
         if "frequenza" in df_mmg.columns:
             df_mmg = df_mmg[df_mmg["frequenza"].str.strip().str.lower() == "x"]
@@ -223,6 +301,13 @@ if file:
         except:
             return None, None
 
+    # Funzione per verificare se l'orario del medico copre interamente l'intervallo personalizzato
+    def interval_covers(cell_value, custom_start, custom_end):
+        start_time, end_time = parse_interval(cell_value)
+        if start_time is None or end_time is None:
+            return False
+        return (start_time <= custom_start) and (end_time >= custom_end)
+    
     def interval_overlaps(cell_value, custom_start, custom_end):
         start_time, end_time = parse_interval(cell_value)
         if start_time is None or end_time is None:
@@ -257,7 +342,7 @@ if file:
                     st.stop()
         if fascia_oraria == "Personalizzato":
             df_filtrato = df_mmg[
-                df_mmg[colonne_giorni].apply(lambda row: any(interval_overlaps(row[col], custom_start, custom_end) for col in colonne_giorni), axis=1)
+                df_mmg[colonne_giorni].apply(lambda row: any(interval_covers(row[col], custom_start, custom_end) for col in colonne_giorni), axis=1)
             ]
             colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea"]
         else:
@@ -276,7 +361,7 @@ if file:
                 st.error(f"Le colonne per il giorno {giorno_scelto} non esistono nel file Excel.")
                 st.stop()
             df_filtrato = df_mmg[
-                df_mmg[col_list].apply(lambda row: any(interval_overlaps(row[col], custom_start, custom_end) for col in col_list), axis=1)
+                df_mmg[col_list].apply(lambda row: any(interval_covers(row[col], custom_start, custom_end) for col in col_list), axis=1)
             ]
             colonne_da_mostrare = ["nome medico", "città"] + col_list + ["indirizzo ambulatorio", "microarea"]
         else:

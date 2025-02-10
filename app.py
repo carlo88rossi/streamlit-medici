@@ -4,6 +4,13 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
+# Funzione di fallback per il rerun: se st.experimental_rerun non esiste, mostra un avviso
+def safe_rerun():
+    if hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    else:
+        st.warning("Rerun automatico non disponibile. Aggiorna Streamlit per abilitare questa funzione.")
+
 # 🔄 Funzione per azzerare i filtri riportandoli ai valori predefiniti
 def azzera_filtri():
     st.session_state["filtro_spec"] = ["MMG", "PED"]
@@ -14,7 +21,7 @@ def azzera_filtri():
     st.session_state["provincia_scelta"] = "Ovunque"
     st.session_state["microarea_scelta"] = "Ovunque"
     st.session_state["search_query"] = ""  # Resetta anche la barra di ricerca
-    st.experimental_rerun()
+    safe_rerun()
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 
@@ -36,15 +43,47 @@ if file:
         df_mmg["microarea"] = df_mmg["microarea"].str.strip()
     
     # --- FILTRI ---
-    # 1. Filtro per tipo di specialista (spec)
-    spec_options = ["MMG", "PED", "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
-    filtro_spec = st.multiselect(
-        "🩺 Filtra per tipo di specialista (spec)",
-        spec_options,
-        default=st.session_state.get("filtro_spec", ["MMG", "PED"]),
-        key="filtro_spec"
-    )
+    st.write("🩺 Filtra per tipo di specialista (spec)")
     
+    # Definiamo i due gruppi:
+    spec_prima = ["MMG", "PED"]
+    spec_seconda = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
+    
+    # Recupera le selezioni precedenti oppure imposta di default ["MMG", "PED"]
+    selected_spec_prev = st.session_state.get("filtro_spec", ["MMG", "PED"])
+    selected_spec = []
+    
+    # Primo gruppo: "MMG" e "PED"
+    cols_first = st.columns(len(spec_prima))
+    for i, spec in enumerate(spec_prima):
+        # Se il widget è già stato creato, prendo il valore salvato in session_state
+        default_val = st.session_state.get(f"spec_{spec}", spec in selected_spec_prev)
+        if cols_first[i].checkbox(spec, value=default_val, key=f"spec_{spec}"):
+            selected_spec.append(spec)
+    
+    # Inizializza la variabile per il toggle se non esiste
+    if "spec_toggled" not in st.session_state:
+        st.session_state["spec_toggled"] = False  # Default: i checkbox del secondo gruppo non sono selezionati
+
+    # Pulsante "SPEC" che effettua il toggle sul secondo gruppo di specialisti
+    if st.button("SPEC", key="spec_button"):
+        # Toggle: se era True diventa False, altrimenti True
+        st.session_state["spec_toggled"] = not st.session_state["spec_toggled"]
+        # Aggiorna lo stato di ciascun checkbox del secondo gruppo
+        for s in spec_seconda:
+            st.session_state[f"spec_{s}"] = st.session_state["spec_toggled"]
+        safe_rerun()
+    
+    # Secondo gruppo: "ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"
+    cols_second = st.columns(4)
+    for i, spec in enumerate(spec_seconda):
+        default_val = st.session_state.get(f"spec_{spec}", spec in selected_spec_prev)
+        if cols_second[i % 4].checkbox(spec, value=default_val, key=f"spec_{spec}"):
+            selected_spec.append(spec)
+    
+    # Aggiorna lo stato dei filtri nel session_state
+    st.session_state["filtro_spec"] = selected_spec
+
     # 2. Filtro per target (In target / Non in target / Tutti)
     filtro_target = st.selectbox(
         "🎯 Scegli il tipo di medici",
@@ -94,7 +133,7 @@ if file:
     )
     
     # Applica il filtro per il tipo di specialista
-    df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]
+    df_mmg = df_mmg[df_mmg["spec"].isin(selected_spec)]
     
     # Applica il filtro per il target
     if filtro_target == "In target":
@@ -103,7 +142,7 @@ if file:
         df_mmg = df_mmg[df_mmg["in target"].isna()]
     
     # --- FILTRO "VISTO" ---
-    # Utilizza SEMPRE le prime tre colonne per verificare la presenza della "x" (case-insensitive)
+    # Utilizza sempre le prime tre colonne per verificare la presenza della "x" (case-insensitive)
     visto_cols = df_mmg.columns[:3]
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower() if isinstance(s, str) else s)
     if filtro_visto == "Visto":
@@ -175,7 +214,6 @@ if file:
     st.write("### Medici disponibili")
     
     # --- CONFIGURAZIONE E VISUALIZZAZIONE CON AgGrid ---
-    # Imposta anche la proprietà per non permettere lo spostamento delle colonne
     gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
     gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
     gb.configure_column("nome medico", width=150, resizable=False, lockPosition=True)
@@ -188,8 +226,7 @@ if file:
     gb.configure_column("microarea", width=100, resizable=False, lockPosition=True)
     
     grid_options = gb.build()
-    # Inoltre, impediamo lo spostamento delle colonne a livello di grid
-    grid_options["suppressMovableColumns"] = True
+    grid_options["suppressMovableColumns"] = True  # Impedisce lo spostamento delle colonne
     
     AgGrid(df_filtrato[colonne_da_mostrare],
            gridOptions=grid_options,

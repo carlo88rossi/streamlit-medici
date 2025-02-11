@@ -3,6 +3,10 @@ import pandas as pd
 from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
+import pytz  # per gestire il fuso orario
+
+# Impostiamo il fuso orario desiderato (es. "Europe/Rome")
+timezone = pytz.timezone("Europe/Rome")
 
 # Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
@@ -145,7 +149,7 @@ if file:
         "Ciclo 3 (Lug-Ago-Set)",
         "Ciclo 4 (Ott-Nov-Dic)"
     ]
-    current_date = datetime.datetime.now()
+    current_date = datetime.datetime.now(timezone)
     month_names = {1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio", 6: "Giugno",
                    7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre"}
     current_month_name = month_names[current_date.month]
@@ -237,8 +241,8 @@ if file:
     # ---------------------------
     # 4. Filtro per giorno della settimana
     # ---------------------------
-    # Calcola il default dinamico per il giorno della settimana in base alla data corrente
-    oggi = datetime.datetime.now()
+    # Calcola il default dinamico per il giorno della settimana in base alla data corrente (usando il fuso orario impostato)
+    oggi = datetime.datetime.now(timezone)
     weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     if weekday < 5:
@@ -273,9 +277,9 @@ if file:
     if fascia_oraria == "Personalizzato":
         # Se non esiste già il range salvato in session_state, lo impostiamo in base all'orario corrente +1 ora
         if "custom_range" not in st.session_state:
-            ora_corrente_dt = datetime.datetime.now()
+            ora_corrente_dt = datetime.datetime.now(timezone)
             custom_start_default = ora_corrente_dt.time()
-            custom_end_dt = ora_corrente_dt + datetime.timedelta(hours=1)  # +1 ora anziché +2 ore
+            custom_end_dt = ora_corrente_dt + datetime.timedelta(hours=1)
             custom_end_default = custom_end_dt.time() if custom_end_dt.time() <= datetime.time(23, 59) else datetime.time(23, 59)
             st.session_state["custom_range"] = (custom_start_default, custom_end_default)
             

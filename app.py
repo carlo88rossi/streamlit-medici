@@ -4,8 +4,8 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
 
-# Configurazione della pagina
-st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
+# Configurazione della pagina in modalità "wide"
+st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="wide")
 
 # CSS personalizzato: design pulito e leggibile
 st.markdown(
@@ -104,7 +104,7 @@ def azzera_filtri():
     try:
         st.experimental_rerun()
     except AttributeError:
-        st.warning("Ricarica manualmente la pagina (aggiorna Streamlit per usare experimental_rerun).")
+        st.warning("Ricarica manualmente la pagina.")
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 
@@ -119,7 +119,7 @@ if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     try:
         st.experimental_rerun()
     except AttributeError:
-        st.warning("Ricarica manualmente la pagina (aggiorna Streamlit per usare experimental_rerun).")
+        st.warning("Ricarica manualmente la pagina.")
 
 # Caricamento del file Excel
 file = st.file_uploader("Carica il file Excel", type=["xlsx"])
@@ -237,7 +237,6 @@ if file:
     # ---------------------------
     # 4. Filtro per giorno della settimana
     # ---------------------------
-    # Calcola il default dinamico per il giorno della settimana in base alla data corrente
     oggi = datetime.datetime.now()
     weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
@@ -270,7 +269,6 @@ if file:
         key="fascia_oraria"
     )
     if fascia_oraria == "Personalizzato":
-        # Se non esiste già il range salvato in session_state, lo impostiamo in base all'orario corrente +2 ore
         if "custom_range" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now()
             custom_start_default = ora_corrente_dt.time()
@@ -446,17 +444,7 @@ if file:
     # Opzione per visualizzazione a tutto schermo
     # ---------------------------
     fullscreen = st.checkbox("Visualizza a tutto schermo", value=False, key="fullscreen_checkbox")
-    grid_height = 800 if fullscreen else 500
-    # Aggiungiamo una regola CSS per forzare l'altezza della griglia (la classe predefinita è ag-theme-streamlit)
-    st.markdown(
-        f"""
-        <style>
-        .ag-theme-streamlit {{
-            height: {grid_height}px !important;
-        }}
-        </style>
-        """, unsafe_allow_html=True
-    )
+    grid_height = 1000 if fullscreen else 500
     
     # ---------------------------
     # VISUALIZZAZIONE CON AgGrid

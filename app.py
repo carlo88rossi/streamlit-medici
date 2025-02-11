@@ -5,7 +5,7 @@ import datetime
 import re
 import pytz  # per gestire il fuso orario
 
-# Impostiamo il fuso orario desiderato (es. "Europe/Rome")
+# Imposta il fuso orario desiderato (es. "Europe/Rome")
 timezone = pytz.timezone("Europe/Rome")
 
 # Configurazione della pagina
@@ -220,10 +220,13 @@ if file:
             st.warning(f"Non sono state trovate colonne per {ciclo_scelto}.")
             visto_cols = df_mmg.columns[:3]
     
+    # Assicuriamoci che i valori siano trattati in minuscolo per il confronto
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower() if isinstance(s, str) else s)
     if filtro_visto == "Visto":
-        df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
+        # Solo medici che hanno la "x" in TUTTE le colonne del periodo selezionato
+        df_mmg = df_mmg[df_mmg[visto_cols].eq("x").all(axis=1)]
     elif filtro_visto == "Non Visto":
+        # Solo medici che NON hanno la "x" in nessuna colonna del periodo
         df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Visita VIP":
         df_mmg = df_mmg[df_mmg[visto_cols].eq("v").any(axis=1)]

@@ -4,8 +4,8 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
 
-# Configurazione della pagina in modalità "wide"
-st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="wide")
+# Configurazione della pagina
+st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
 
 # CSS personalizzato: design pulito e leggibile
 st.markdown(
@@ -85,7 +85,7 @@ st.title("📋 Filtro Medici - Ricevimento Settimanale")
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
-# Funzione per azzerare i filtri: rimuoviamo le chiavi relative ai filtri dal session_state
+# Funzione per azzerare i filtri: rimuoviamo le chiavi dal session_state
 def azzera_filtri():
     keys_to_clear = [
         "filtro_spec",
@@ -104,7 +104,7 @@ def azzera_filtri():
     try:
         st.experimental_rerun()
     except AttributeError:
-        st.warning("Ricarica manualmente la pagina.")
+        st.warning("Ricarica manualmente la pagina (aggiorna Streamlit per usare experimental_rerun).")
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 
@@ -119,7 +119,7 @@ if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     try:
         st.experimental_rerun()
     except AttributeError:
-        st.warning("Ricarica manualmente la pagina.")
+        st.warning("Ricarica manualmente la pagina (aggiorna Streamlit per usare experimental_rerun).")
 
 # Caricamento del file Excel
 file = st.file_uploader("Carica il file Excel", type=["xlsx"])
@@ -237,6 +237,7 @@ if file:
     # ---------------------------
     # 4. Filtro per giorno della settimana
     # ---------------------------
+    # Calcola il default dinamico per il giorno della settimana in base alla data corrente
     oggi = datetime.datetime.now()
     weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
@@ -246,6 +247,7 @@ if file:
         default_giorno = "sempre"  # Se siamo nel weekend
 
     giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
+    # Se "giorno_scelto" non è presente, verrà usato il default dinamico
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
         giorni_opzioni,
@@ -269,10 +271,11 @@ if file:
         key="fascia_oraria"
     )
     if fascia_oraria == "Personalizzato":
+        # Se non esiste già il range salvato in session_state, lo impostiamo in base all'orario corrente +1 ora
         if "custom_range" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now()
             custom_start_default = ora_corrente_dt.time()
-            custom_end_dt = ora_corrente_dt + datetime.timedelta(hours=2)
+            custom_end_dt = ora_corrente_dt + datetime.timedelta(hours=1)  # +1 ora anziché +2 ore
             custom_end_default = custom_end_dt.time() if custom_end_dt.time() <= datetime.time(23, 59) else datetime.time(23, 59)
             st.session_state["custom_range"] = (custom_start_default, custom_end_default)
             
@@ -441,12 +444,6 @@ if file:
     st.write("### Medici disponibili")
     
     # ---------------------------
-    # Opzione per visualizzazione a tutto schermo
-    # ---------------------------
-    fullscreen = st.checkbox("Visualizza a tutto schermo", value=False, key="fullscreen_checkbox")
-    grid_height = 1000 if fullscreen else 500
-    
-    # ---------------------------
     # VISUALIZZAZIONE CON AgGrid
     # ---------------------------
     gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
@@ -464,15 +461,15 @@ if file:
     
     AgGrid(df_filtrato[colonne_da_mostrare],
            gridOptions=grid_options,
-           height=grid_height,
+           height=500,
            fit_columns_on_grid_load=False)
     
     # ---------------------------
-    # Pulsante per scaricare la tabella dei risultati (CSV)
+    # Possibilità di scaricare il risultato della tabella in CSV
     # ---------------------------
-    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode('utf-8')
+    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
     st.download_button(
-        label="Scarica risultati in CSV",
+        label="Scarica tabella (CSV)",
         data=csv,
         file_name="medici_filtrati.csv",
         mime="text/csv"

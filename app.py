@@ -220,13 +220,13 @@ if file:
             st.warning(f"Non sono state trovate colonne per {ciclo_scelto}.")
             visto_cols = df_mmg.columns[:3]
     
-    # Convertiamo i valori in minuscolo per il confronto
-    df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower() if isinstance(s, str) else s)
+    # Convertiamo i valori delle colonne promozionali in stringa, minuscolo e senza spazi superflui
+    df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
     if filtro_visto == "Visto":
-        # Medico visto se in almeno una colonna del periodo c'è "x"
+        # Mostra i medici che hanno almeno una "x" in una delle colonne del periodo
         df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Non Visto":
-        # Medico non visto se in nessuna colonna c'è "x"
+        # Mostra i medici che non hanno "x" in nessuna colonna
         df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Visita VIP":
         df_mmg = df_mmg[df_mmg[visto_cols].eq("v").any(axis=1)]
@@ -244,7 +244,6 @@ if file:
     # ---------------------------
     # 4. Filtro per giorno della settimana
     # ---------------------------
-    # Calcola il default dinamico per il giorno della settimana in base alla data corrente (usando il fuso orario impostato)
     oggi = datetime.datetime.now(timezone)
     weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]

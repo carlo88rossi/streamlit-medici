@@ -85,16 +85,22 @@ st.title("📋 Filtro Medici - Ricevimento Settimanale")
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
-# Funzione per azzerare i filtri (reset dei valori di sessione)
+# Funzione per azzerare i filtri: rimuoviamo le chiavi relative ai filtri dal session_state
 def azzera_filtri():
-    st.session_state["filtro_spec"] = default_spec
-    st.session_state["filtro_target"] = "In target"
-    st.session_state["filtro_visto"] = "Non Visto"
-    st.session_state["giorno_scelto"] = "sempre"  # default: sempre
-    st.session_state["fascia_oraria"] = "Mattina e Pomeriggio"
-    st.session_state["provincia_scelta"] = "Ovunque"
-    st.session_state["microarea_scelta"] = "Ovunque"
-    st.session_state["search_query"] = ""  # reset della barra di ricerca
+    keys_to_clear = [
+        "filtro_spec",
+        "filtro_target",
+        "filtro_visto",
+        "giorno_scelto",
+        "fascia_oraria",
+        "provincia_scelta",
+        "microarea_scelta",
+        "search_query",
+        "custom_range"
+    ]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
     try:
         st.experimental_rerun()
     except AttributeError:
@@ -231,30 +237,52 @@ if file:
     # ---------------------------
     # 4. Filtro per giorno della settimana
     # ---------------------------
+    # Calcola il default dinamico per il giorno della settimana in base alla data corrente
+    oggi = datetime.datetime.now()
+    weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
+    giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
+    if weekday < 5:
+        default_giorno = giorni_settimana[weekday]
+    else:
+        default_giorno = "sempre"  # Se siamo nel weekend
+
     giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
         giorni_opzioni,
-        index=giorni_opzioni.index(st.session_state.get("giorno_scelto", "sempre")),
+        index=giorni_opzioni.index(st.session_state.get("giorno_scelto", default_giorno)),
         key="giorno_scelto"
     )
     
     # ---------------------------
     # 5. Filtro per fascia oraria (con opzione "Personalizzato")
     # ---------------------------
+    default_fascia = "Personalizzato"
     fascia_options = ["Mattina", "Pomeriggio", "Mattina e Pomeriggio", "Personalizzato"]
+    fascia_value = st.session_state.get("fascia_oraria")
+    if fascia_value is None or fascia_value not in fascia_options:
+        fascia_value = default_fascia
+
     fascia_oraria = st.radio(
         "🌞 Scegli la fascia oraria",
         fascia_options,
-        index=fascia_options.index(st.session_state.get("fascia_oraria", "Mattina e Pomeriggio")),
+        index=fascia_options.index(fascia_value),
         key="fascia_oraria"
     )
     if fascia_oraria == "Personalizzato":
+        # Se non esiste già il range salvato in session_state, lo impostiamo in base all'orario corrente +2 ore
+        if "custom_range" not in st.session_state:
+            ora_corrente_dt = datetime.datetime.now()
+            custom_start_default = ora_corrente_dt.time()
+            custom_end_dt = ora_corrente_dt + datetime.timedelta(hours=2)
+            custom_end_default = custom_end_dt.time() if custom_end_dt.time() <= datetime.time(23, 59) else datetime.time(23, 59)
+            st.session_state["custom_range"] = (custom_start_default, custom_end_default)
+            
         custom_range = st.slider(
             "Seleziona l'intervallo orario",
             min_value=datetime.time(0, 0),
             max_value=datetime.time(23, 59),
-            value=(datetime.time(10, 0), datetime.time(12, 0)),
+            value=st.session_state["custom_range"],
             step=datetime.timedelta(minutes=15),
             format="HH:mm",
             key="custom_range"
@@ -301,7 +329,6 @@ if file:
         except:
             return None, None
 
-    # Funzione per verificare se l'orario del medico copre interamente l'intervallo personalizzato
     def interval_covers(cell_value, custom_start, custom_end):
         start_time, end_time = parse_interval(cell_value)
         if start_time is None or end_time is None:
@@ -416,6 +443,22 @@ if file:
     st.write("### Medici disponibili")
     
     # ---------------------------
+    # Opzione per visualizzazione a tutto schermo
+    # ---------------------------
+    fullscreen = st.checkbox("Visualizza a tutto schermo", value=False, key="fullscreen_checkbox")
+    grid_height = 800 if fullscreen else 500
+    # Aggiungiamo una regola CSS per forzare l'altezza della griglia (la classe predefinita è ag-theme-streamlit)
+    st.markdown(
+        f"""
+        <style>
+        .ag-theme-streamlit {{
+            height: {grid_height}px !important;
+        }}
+        </style>
+        """, unsafe_allow_html=True
+    )
+    
+    # ---------------------------
     # VISUALIZZAZIONE CON AgGrid
     # ---------------------------
     gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
@@ -433,5 +476,16 @@ if file:
     
     AgGrid(df_filtrato[colonne_da_mostrare],
            gridOptions=grid_options,
-           height=500,
+           height=grid_height,
            fit_columns_on_grid_load=False)
+    
+    # ---------------------------
+    # Pulsante per scaricare la tabella dei risultati (CSV)
+    # ---------------------------
+    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Scarica risultati in CSV",
+        data=csv,
+        file_name="medici_filtrati.csv",
+        mime="text/csv"
+    )

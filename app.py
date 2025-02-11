@@ -302,11 +302,12 @@ if file:
         index=provincia_lista.index(st.session_state.get("provincia_scelta", "Ovunque")),
         key="provincia_scelta"
     )
-    microarea_lista = ["Ovunque"] + (sorted(df_mmg["microarea"].dropna().unique().tolist()) if "microarea" in df_mmg.columns else [])
-    microarea_scelta = st.selectbox(
-        "📌 Scegli la Microarea",
+    # Per la microarea, la lista contiene tutte le microaree univoche; di default non ne è selezionata nessuna
+    microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist()) if "microarea" in df_mmg.columns else []
+    microarea_selezionate = st.multiselect(
+        "📌 Scegli le Microaree",
         microarea_lista,
-        index=microarea_lista.index(st.session_state.get("microarea_scelta", "Ovunque")),
+        default=st.session_state.get("microarea_scelta", []),
         key="microarea_scelta"
     )
     
@@ -417,9 +418,11 @@ if file:
         df_filtrato = df_filtrato[
             df_filtrato["provincia"].str.strip().str.lower() == provincia_scelta.strip().lower()
         ]
-    if microarea_scelta != "Ovunque" and "microarea" in df_filtrato.columns:
+    # Se sono state selezionate una o più microaree, applichiamo il filtro;
+    # se nessuna è selezionata (default vuoto) non filtriamo per microarea
+    if microarea_selezionate and "microarea" in df_filtrato.columns:
         df_filtrato = df_filtrato[
-            df_filtrato["microarea"].str.strip().str.lower() == microarea_scelta.strip().lower()
+            df_filtrato["microarea"].str.strip().str.lower().isin([m.lower() for m in microarea_selezionate])
         ]
     
     # ---------------------------

@@ -100,7 +100,8 @@ def azzera_filtri():
         "provincia_scelta",
         "microarea_scelta",
         "search_query",
-        "custom_range"
+        "custom_start",
+        "custom_end"
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -108,7 +109,7 @@ def azzera_filtri():
     try:
         st.experimental_rerun()
     except AttributeError:
-        st.warning("Ricarica manualmente la pagina (aggiorna Streamlit per usare experimental_rerun).")
+        st.warning("Ricarica manualmente la pagina.")
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 
@@ -123,7 +124,7 @@ if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     try:
         st.experimental_rerun()
     except AttributeError:
-        st.warning("Ricarica manualmente la pagina (aggiorna Streamlit per usare experimental_rerun).")
+        st.warning("Ricarica manualmente la pagina.")
 
 # Caricamento del file Excel
 file = st.file_uploader("Carica il file Excel", type=["xlsx"])
@@ -220,7 +221,7 @@ if file:
             st.warning(f"Non sono state trovate colonne per {ciclo_scelto}.")
             visto_cols = df_mmg.columns[:3]
     
-    # Convertiamo i valori delle colonne promozionali in stringa, minuscolo e senza spazi superflui
+    # Convertiamo i valori delle colonne promozionali in stringa, minuscolo e senza spazi extra
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
     if filtro_visto == "Visto":
         # Mostra i medici che hanno almeno una "x" in una delle colonne del periodo
@@ -276,27 +277,20 @@ if file:
         key="fascia_oraria"
     )
     if fascia_oraria == "Personalizzato":
-        # Se non esiste già il range salvato in session_state, lo impostiamo in base all'orario corrente +1 ora
-        if "custom_range" not in st.session_state:
+        # Usa due widget time_input per rendere la regolazione più semplice da cellulare
+        if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now(timezone)
-            custom_start_default = ora_corrente_dt.time()
-            custom_end_dt = ora_corrente_dt + datetime.timedelta(hours=1)
-            custom_end_default = custom_end_dt.time() if custom_end_dt.time() <= datetime.time(23, 59) else datetime.time(23, 59)
-            st.session_state["custom_range"] = (custom_start_default, custom_end_default)
-            
-        custom_range = st.slider(
-            "Seleziona l'intervallo orario",
-            min_value=datetime.time(0, 0),
-            max_value=datetime.time(23, 59),
-            value=st.session_state["custom_range"],
-            step=datetime.timedelta(minutes=15),
-            format="HH:mm",
-            key="custom_range"
-        )
-        custom_start, custom_end = custom_range
+            st.session_state["custom_start"] = ora_corrente_dt.time()
+            st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(hours=1)).time()
+        
+        custom_start = st.time_input("Orario di inizio", value=st.session_state["custom_start"], key="custom_start")
+        custom_end = st.time_input("Orario di fine", value=st.session_state["custom_end"], key="custom_end")
+        
         if custom_end <= custom_start:
             st.error("L'orario di fine deve essere successivo all'orario di inizio.")
             st.stop()
+    else:
+        custom_start, custom_end = None, None
     
     # ---------------------------
     # 6. Filtro per Provincia e Microarea

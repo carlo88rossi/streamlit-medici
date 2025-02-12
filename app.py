@@ -277,14 +277,32 @@ if file:
         key="fascia_oraria"
     )
     if fascia_oraria == "Personalizzato":
-        # Usa due widget time_input per rendere la regolazione più semplice da cellulare
+        # Inizializza i valori se non sono presenti nel session_state
         if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now(timezone)
             st.session_state["custom_start"] = ora_corrente_dt.time()
             st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(hours=1)).time()
         
-        custom_start = st.time_input("Orario di inizio", value=st.session_state["custom_start"], key="custom_start")
-        custom_end = st.time_input("Orario di fine", value=st.session_state["custom_end"], key="custom_end")
+        # Imposta i limiti minimi e massimi per lo slider dalle 07:00 alle 19:00
+        default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
+        default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19, 0))
+        
+        # Preleva i valori di default salvati nel session_state
+        default_start = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_start"])
+        default_end = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"])
+        
+        # Slider per la selezione dell'intervallo orario con formato "HH:mm"
+        custom_range = st.slider(
+            "Seleziona l'intervallo orario",
+            min_value=default_min,
+            max_value=default_max,
+            value=(default_start, default_end),
+            format="HH:mm"
+        )
+        
+        # Estrai orario di inizio e fine dallo slider
+        custom_start = custom_range[0].time()
+        custom_end = custom_range[1].time()
         
         if custom_end <= custom_start:
             st.error("L'orario di fine deve essere successivo all'orario di inizio.")
@@ -455,24 +473,4 @@ if file:
     for col in colonne_da_mostrare:
         if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea"]:
             gb.configure_column(col, width=100, resizable=False, lockPosition=True)
-    gb.configure_column("indirizzo ambulatorio", width=150, resizable=False, lockPosition=True)
-    gb.configure_column("microarea", width=100, resizable=False, lockPosition=True)
-    
-    grid_options = gb.build()
-    grid_options["suppressMovableColumns"] = True
-    
-    AgGrid(df_filtrato[colonne_da_mostrare],
-           gridOptions=grid_options,
-           height=500,
-           fit_columns_on_grid_load=False)
-    
-    # ---------------------------
-    # Possibilità di scaricare il risultato della tabella in CSV
-    # ---------------------------
-    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Scarica tabella (CSV)",
-        data=csv,
-        file_name="medici_filtrati.csv",
-        mime="text/csv"
-    )
+    gb.configure_column("indirizzo ambul

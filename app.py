@@ -473,4 +473,24 @@ if file:
     for col in colonne_da_mostrare:
         if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea"]:
             gb.configure_column(col, width=100, resizable=False, lockPosition=True)
-    gb.configure_column("indirizzo ambul
+    gb.configure_column("indirizzo ambulatorio", width=150, resizable=False, lockPosition=True)
+    gb.configure_column("microarea", width=100, resizable=False, lockPosition=True)
+    
+    grid_options = gb.build()
+    grid_options["suppressMovableColumns"] = True
+    
+    AgGrid(df_filtrato[colonne_da_mostrare],
+           gridOptions=grid_options,
+           height=500,
+           fit_columns_on_grid_load=False)
+    
+    # ---------------------------
+    # Possibilità di scaricare il risultato della tabella in CSV
+    # ---------------------------
+    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Scarica tabella (CSV)",
+        data=csv,
+        file_name="medici_filtrati.csv",
+        mime="text/csv"
+    )

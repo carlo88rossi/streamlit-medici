@@ -83,32 +83,6 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# CSS aggiuntivo per ingrandire e orientare gli handle dello slider su mobile
-st.markdown(
-    """
-    <style>
-    /* Imposta dimensione degli handle */
-    [data-baseweb="slider"] > div > div > div[role="slider"] {
-         width: 30px !important;
-         height: 30px !important;
-         margin-top: -15px; /* centrare verticalmente rispetto alla barra */
-    }
-    /* Ingrandisci anche la barra dello slider */
-    [data-baseweb="slider"] > div > div > div {
-         height: 8px !important;
-    }
-    /* Sposta orizzontalmente gli handle verso l'esterno:
-       il primo (min) viene spostato a sinistra, il secondo (max) a destra */
-    [data-baseweb="slider"] > div > div > div[role="slider"]:first-child {
-         transform: translateX(-10px);
-    }
-    [data-baseweb="slider"] > div > div > div[role="slider"]:last-child {
-         transform: translateX(10px);
-    }
-    </style>
-    """, unsafe_allow_html=True
-)
-
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
 # Definizione delle specializzazioni di default ed extra
@@ -205,22 +179,24 @@ if file:
     df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]
     
     # ---------------------------
-    # 2. Filtro per target (In target / Non in target / Tutti)
+    # 2. Filtro combinato: Target e "Visto"
     # ---------------------------
+    # Selezione del filtro target:
+    # - "In target": mostra solo i medici con "x" nella colonna "in target"
+    # - "Non in target": mostra solo i medici senza "x" nella colonna "in target"
+    # - "Tutti": mostra entrambi
     filtro_target = st.selectbox(
         "🎯 Scegli il tipo di medici",
         ["In target", "Non in target", "Tutti"],
         index=["In target", "Non in target", "Tutti"].index(st.session_state.get("filtro_target", "In target")),
         key="filtro_target"
     )
-    if filtro_target == "In target":
-        df_mmg = df_mmg[df_mmg["in target"] == "x"]
-    elif filtro_target == "Non in target":
-        df_mmg = df_mmg[df_mmg["in target"].isna()]
     
-    # ---------------------------
-    # 3. Filtro per "visto" (Tutti / Visto / Non Visto / Visita VIP)
-    # ---------------------------
+    # Selezione del filtro "visto":
+    # - "Visto": per ogni gruppo, mostra solo i medici che hanno almeno una "x" nelle colonne dei mesi del ciclo
+    # - "Non Visto": mostra solo i medici che non hanno alcuna "x" nelle colonne dei mesi del ciclo
+    # - "Visita VIP": mostra solo i medici che hanno almeno una "v" nelle colonne dei mesi del ciclo
+    # - "Tutti": non applica ulteriori filtri sui mesi
     filtro_visto = st.selectbox(
         "👀 Filtra per medici 'VISTO'",
         ["Tutti", "Visto", "Non Visto", "Visita VIP"],
@@ -228,12 +204,14 @@ if file:
         key="filtro_visto"
     )
     
+    # Determina le colonne dei mesi in base al ciclo selezionato
     if ciclo_scelto == "Tutti":
         all_months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
                       "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
         visto_cols = [col for col in all_months if col in df_mmg.columns]
         if not visto_cols:
-            visto_cols = df_mmg.columns[:3]
+            st.error("Colonne del ciclo non trovate nel file Excel.")
+            st.stop()
     else:
         month_cycles = {
             "Ciclo 1 (Gen-Feb-Mar)": ["gennaio", "febbraio", "marzo"],
@@ -244,22 +222,36 @@ if file:
         ciclo_cols = month_cycles.get(ciclo_scelto, [])
         visto_cols = [col for col in ciclo_cols if col in df_mmg.columns]
         if not visto_cols:
-            st.warning(f"Non sono state trovate colonne per {ciclo_scelto}.")
-            visto_cols = df_mmg.columns[:3]
+            st.error(f"Non sono state trovate colonne per {ciclo_scelto}.")
+            st.stop()
     
-    # Convertiamo i valori delle colonne promozionali in stringa, minuscolo e senza spazi extra
+    # Assicuriamoci che i valori nelle colonne dei mesi siano in formato minuscolo e senza spazi extra
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
-    if filtro_visto == "Visto":
-        # Mostra i medici che hanno almeno una "x" in una delle colonne del periodo
-        df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
+    
+    # Suddividi il DataFrame in medici in target e non in target
+    df_in_target = df_mmg[df_mmg["in target"].str.strip().str.lower() == "x"]
+    df_non_target = df_mmg[~(df_mmg["in target"].str.strip().str.lower() == "x")]
+    
+    # Applica il filtro target
+    if filtro_target == "In target":
+        df_filtered_target = df_in_target.copy()
+    elif filtro_target == "Non in target":
+        df_filtered_target = df_non_target.copy()
+    else:  # "Tutti"
+        df_filtered_target = pd.concat([df_in_target, df_non_target])
+    
+    # Applica il filtro "visto" combinato
+    if filtro_visto == "Tutti":
+        df_mmg = df_filtered_target.copy()
+    elif filtro_visto == "Visto":
+        df_mmg = df_filtered_target[df_filtered_target[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Non Visto":
-        # Mostra i medici che non hanno "x" in nessuna colonna
-        df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
+        df_mmg = df_filtered_target[~df_filtered_target[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Visita VIP":
-        df_mmg = df_mmg[df_mmg[visto_cols].eq("v").any(axis=1)]
+        df_mmg = df_filtered_target[df_filtered_target[visto_cols].eq("v").any(axis=1)]
     
     # ---------------------------
-    # Nuovo filtro: FREQUENZA (dopo "VISTO")
+    # Nuovo filtro: FREQUENZA
     # ---------------------------
     filtro_frequenza = st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza")
     if filtro_frequenza:
@@ -309,15 +301,13 @@ if file:
             st.session_state["custom_start"] = ora_corrente_dt.time()
             st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(hours=1)).time()
         
-        # Imposta i limiti minimi e massimi per lo slider dalle 07:00 alle 19:00
+        # Imposta i limiti per lo slider (dalle 07:00 alle 19:00)
         default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
         default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19, 0))
         
-        # Preleva i valori di default salvati nel session_state
         default_start = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_start"])
         default_end = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"])
         
-        # Slider per la selezione dell'intervallo orario con formato "HH:mm"
         custom_range = st.slider(
             "Seleziona l'intervallo orario",
             min_value=default_min,
@@ -325,8 +315,6 @@ if file:
             value=(default_start, default_end),
             format="HH:mm"
         )
-        
-        # Estrai orario di inizio e fine dallo slider
         custom_start = custom_range[0].time()
         custom_end = custom_range[1].time()
         
@@ -346,7 +334,6 @@ if file:
         index=provincia_lista.index(st.session_state.get("provincia_scelta", "Ovunque")),
         key="provincia_scelta"
     )
-    # Per la microarea, la lista contiene tutte le microaree univoche; di default non ne è selezionata nessuna
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist()) if "microarea" in df_mmg.columns else []
     microarea_selezionate = st.multiselect(
         "📌 Scegli le Microaree",
@@ -456,20 +443,6 @@ if file:
                 colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio, "indirizzo ambulatorio", "microarea"]
     
     # ---------------------------
-    # FILTRO PER PROVINCIA E MICROAREA
-    # ---------------------------
-    if provincia_scelta != "Ovunque" and "provincia" in df_filtrato.columns:
-        df_filtrato = df_filtrato[
-            df_filtrato["provincia"].str.strip().str.lower() == provincia_scelta.strip().lower()
-        ]
-    # Se sono state selezionate una o più microaree, applichiamo il filtro;
-    # se nessuna è selezionata (default vuoto) non filtriamo per microarea
-    if microarea_selezionate and "microarea" in df_filtrato.columns:
-        df_filtrato = df_filtrato[
-            df_filtrato["microarea"].str.strip().str.lower().isin([m.lower() for m in microarea_selezionate])
-        ]
-    
-    # ---------------------------
     # BARRA DI RICERCA
     # ---------------------------
     search_query = st.text_input("🔎 Cerca nei risultati", placeholder="Inserisci nome, città, microarea, ecc.", key="search_query")
@@ -499,24 +472,8 @@ if file:
     for col in colonne_da_mostrare:
         if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea"]:
             gb.configure_column(col, width=100, resizable=False, lockPosition=True)
-    gb.configure_column("indirizzo ambulatorio", width=150, resizable=False, lockPosition=True)
-    gb.configure_column("microarea", width=100, resizable=False, lockPosition=True)
+    gb.configure_column("indirizzo ambulatorio", width=200, resizable=False, lockPosition=True)
+    gb.configure_column("microarea", width=120, resizable=False, lockPosition=True)
     
-    grid_options = gb.build()
-    grid_options["suppressMovableColumns"] = True
-    
-    AgGrid(df_filtrato[colonne_da_mostrare],
-           gridOptions=grid_options,
-           height=500,
-           fit_columns_on_grid_load=False)
-    
-    # ---------------------------
-    # Possibilità di scaricare il risultato della tabella in CSV
-    # ---------------------------
-    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Scarica tabella (CSV)",
-        data=csv,
-        file_name="medici_filtrati.csv",
-        mime="text/csv"
-    )
+    gridOptions = gb.build()
+    AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gridOptions, enable_enterprise_modules=False)

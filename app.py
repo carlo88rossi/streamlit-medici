@@ -83,6 +83,32 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
+# CSS aggiuntivo per ingrandire e orientare gli handle dello slider su mobile
+st.markdown(
+    """
+    <style>
+    /* Imposta dimensione degli handle */
+    [data-baseweb="slider"] > div > div > div[role="slider"] {
+         width: 30px !important;
+         height: 30px !important;
+         margin-top: -15px; /* centrare verticalmente rispetto alla barra */
+    }
+    /* Ingrandisci anche la barra dello slider */
+    [data-baseweb="slider"] > div > div > div {
+         height: 8px !important;
+    }
+    /* Sposta orizzontalmente gli handle verso l'esterno:
+       il primo (min) viene spostato a sinistra, il secondo (max) a destra */
+    [data-baseweb="slider"] > div > div > div[role="slider"]:first-child {
+         transform: translateX(-10px);
+    }
+    [data-baseweb="slider"] > div > div > div[role="slider"]:last-child {
+         transform: translateX(10px);
+    }
+    </style>
+    """, unsafe_allow_html=True
+)
+
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
 # Definizione delle specializzazioni di default ed extra

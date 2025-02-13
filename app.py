@@ -261,13 +261,73 @@ if file:
             st.warning("La colonna 'frequenza' non è presente nel file Excel.")
     
     # ---------------------------
-    # Filtro per giorno della settimana
+    # Filtro per Provincia e Microarea
     # ---------------------------
+    if "provincia" in df_mmg.columns:
+        provincia_lista = ["OVUNQUE"] + sorted(df_mmg["provincia"].dropna().unique().tolist())
+    else:
+        provincia_lista = ["OVUNQUE"]
+    provincia_scelta = st.selectbox(
+        "📍 Scegli la Provincia",
+        provincia_lista,
+        index=provincia_lista.index(st.session_state.get("provincia_scelta", "OVUNQUE")),
+        key="provincia_scelta"
+    )
+    if provincia_scelta != "OVUNQUE":
+        df_mmg = df_mmg[df_mmg["provincia"] == provincia_scelta]
+        if "microarea" in df_mmg.columns:
+            microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
+    else:
+        if "microarea" in df_mmg.columns:
+            microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
+    
+    microarea_selezionate = st.multiselect(
+        "📌 Scegli le Microaree",
+        microarea_lista,
+        default=st.session_state.get("microarea_scelta", []),
+        key="microarea_scelta"
+    )
+    if microarea_selezionate and "microarea" in df_mmg.columns:
+        df_mmg = df_mmg[df_mmg["microarea"].str.upper().isin([m.upper() for m in microarea_selezionate])]
+    
+    # ---------------------------
+    # FUNZIONI PER IL PARSING DEGLI ORARI
+    # ---------------------------
+    def parse_interval(cell_value):
+        if pd.isna(cell_value):
+            return None, None
+        cell_value = str(cell_value).strip()
+        m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
+        if not m:
+            return None, None
+        start_str, end_str = m.groups()
+        fmt = "%H:%M" if ":" in start_str else "%H"
+        try:
+            start_time = datetime.datetime.strptime(start_str, fmt).time()
+            end_time = datetime.datetime.strptime(end_str, fmt).time()
+            return start_time, end_time
+        except:
+            return None, None
+
+    def interval_covers(cell_value, custom_start, custom_end):
+        start_time, end_time = parse_interval(cell_value)
+        if start_time is None or end_time is None:
+            return False
+        return (start_time <= custom_start) and (end_time >= custom_end)
+
+    def interval_overlaps(cell_value, custom_start, custom_end):
+        start_time, end_time = parse_interval(cell_value)
+        if start_time is None or end_time is None:
+            return False
+        return (start_time < custom_end) and (custom_start < end_time)
+    
+    # ---------------------------
+    # FILTRI PER GIORNO E FASCIA ORARIA
+    # ---------------------------
+    giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     oggi = datetime.datetime.now(timezone)
     weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ... 6: domenica
-    giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
-    default_giorno = giorni_settimana[weekday] if weekday < 5 else "sempre"
-    giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
+    default_giorno = giorni_opzioni[weekday] if weekday < 5 else "sempre"
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
         giorni_opzioni,
@@ -275,9 +335,6 @@ if file:
         key="giorno_scelto"
     )
     
-    # ---------------------------
-    # Filtro per fascia oraria
-    # ---------------------------
     default_fascia = "Personalizzato"
     fascia_options = ["Mattina", "Pomeriggio", "Mattina e Pomeriggio", "Personalizzato"]
     fascia_value = st.session_state.get("fascia_oraria")
@@ -313,41 +370,6 @@ if file:
     else:
         custom_start, custom_end = None, None
 
-    # ---------------------------
-    # Filtro per Provincia e Microarea
-    # ---------------------------
-    # Crea la lista delle province: "OVUNQUE" + valori univoci
-    if "provincia" in df_mmg.columns:
-        provincia_lista = ["OVUNQUE"] + sorted(df_mmg["provincia"].dropna().unique().tolist())
-    else:
-        provincia_lista = ["OVUNQUE"]
-    provincia_scelta = st.selectbox(
-        "📍 Scegli la Provincia",
-        provincia_lista,
-        index=provincia_lista.index(st.session_state.get("provincia_scelta", "OVUNQUE")),
-        key="provincia_scelta"
-    )
-    # Filtra per provincia se diversa da "OVUNQUE"
-    if provincia_scelta != "OVUNQUE":
-        df_mmg = df_mmg[df_mmg["provincia"] == provincia_scelta]
-        if "microarea" in df_mmg.columns:
-            microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-    else:
-        if "microarea" in df_mmg.columns:
-            microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-    
-    microarea_selezionate = st.multiselect(
-        "📌 Scegli le Microaree",
-        microarea_lista,
-        default=st.session_state.get("microarea_scelta", []),
-        key="microarea_scelta"
-    )
-    if microarea_selezionate and "microarea" in df_mmg.columns:
-        df_mmg = df_mmg[df_mmg["microarea"].str.upper().isin([m.upper() for m in microarea_selezionate])]
-    
-    # ---------------------------
-    # Filtri per giorno e fascia oraria
-    # ---------------------------
     if giorno_scelto == "sempre":
         giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
         colonne_giorni = []
@@ -377,7 +399,6 @@ if file:
             ]
             colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea"]
         elif fascia_oraria == "Mattina e Pomeriggio":
-            # Non applichiamo un filtro stringente, includiamo il medico se almeno una cella contiene qualcosa (anche se vuota in altri giorni)
             df_filtrato = df_mmg[
                 df_mmg[colonne_giorni].apply(lambda row: any(str(val).strip() != "" for val in row), axis=1)
             ]
@@ -414,37 +435,6 @@ if file:
                     (df_mmg[colonna_pomeriggio].astype(str).str.strip() != "")
                 ]
                 colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio, "indirizzo ambulatorio", "microarea"]
-    
-    # ---------------------------
-    # Funzioni per il parsing degli orari
-    # ---------------------------
-    def parse_interval(cell_value):
-        if pd.isna(cell_value):
-            return None, None
-        cell_value = str(cell_value).strip()
-        m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
-        if not m:
-            return None, None
-        start_str, end_str = m.groups()
-        fmt = "%H:%M" if ":" in start_str else "%H"
-        try:
-            start_time = datetime.datetime.strptime(start_str, fmt).time()
-            end_time = datetime.datetime.strptime(end_str, fmt).time()
-            return start_time, end_time
-        except:
-            return None, None
-
-    def interval_covers(cell_value, custom_start, custom_end):
-        start_time, end_time = parse_interval(cell_value)
-        if start_time is None or end_time is None:
-            return False
-        return (start_time <= custom_start) and (end_time >= custom_end)
-    
-    def interval_overlaps(cell_value, custom_start, custom_end):
-        start_time, end_time = parse_interval(cell_value)
-        if start_time is None or end_time is None:
-            return False
-        return (start_time < custom_end) and (custom_start < end_time)
     
     # ---------------------------
     # Barra di ricerca

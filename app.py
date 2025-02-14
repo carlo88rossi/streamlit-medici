@@ -11,6 +11,31 @@ timezone = pytz.timezone("Europe/Rome")
 # Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
 
+# --- DEFINIZIONE FUNZIONI UTILI (Parsing orari) ---
+def parse_interval(cell_value):
+    """Parsa un valore tipo '08:00-12:00' e restituisce (start_time, end_time) come oggetti time."""
+    if pd.isna(cell_value):
+        return None, None
+    cell_value = str(cell_value).strip()
+    m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
+    if not m:
+        return None, None
+    start_str, end_str = m.groups()
+    fmt = "%H:%M" if ":" in start_str else "%H"
+    try:
+        start_time = datetime.datetime.strptime(start_str, fmt).time()
+        end_time = datetime.datetime.strptime(end_str, fmt).time()
+        return start_time, end_time
+    except:
+        return None, None
+
+def interval_covers(cell_value, custom_start, custom_end):
+    """Controlla se l'intervallo orario in cell_value copre completamente [custom_start, custom_end]."""
+    start_time, end_time = parse_interval(cell_value)
+    if start_time is None or end_time is None:
+        return False
+    return (start_time <= custom_start) and (end_time >= custom_end)
+
 # CSS personalizzato: design pulito e leggibile
 st.markdown(
     """
@@ -136,9 +161,9 @@ if file:
     # Uniforma i nomi delle colonne in minuscolo e rimuove spazi extra
     df_mmg.columns = df_mmg.columns.str.lower()
     if "provincia" in df_mmg.columns:
-        df_mmg["provincia"] = df_mmg["provincia"].str.strip()
+        df_mmg["provincia"] = df_mmg["provincia"].astype(str).str.strip()
     if "microarea" in df_mmg.columns:
-        df_mmg["microarea"] = df_mmg["microarea"].str.strip()
+        df_mmg["microarea"] = df_mmg["microarea"].astype(str).str.strip()
     
     # ---------------------------
     # PRIMO FILTRO: CICLO DEI MESI
@@ -151,8 +176,10 @@ if file:
         "Ciclo 4 (Ott-Nov-Dic)"
     ]
     current_date = datetime.datetime.now(timezone)
-    month_names = {1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio", 6: "Giugno",
-                   7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre"}
+    month_names = {
+        1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio", 6: "Giugno",
+        7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre"
+    }
     current_month_name = month_names[current_date.month]
     if current_date.month in [1, 2, 3]:
         default_cycle_index = 1
@@ -179,7 +206,7 @@ if file:
     df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]
     
     # ---------------------------
-    # 2. Filtro per target (In target / Non in target / Tutti)
+    # 2. Filtro combinato: Target e "Visto"
     # ---------------------------
     filtro_target = st.selectbox(
         "🎯 Scegli il tipo di medici",
@@ -187,14 +214,7 @@ if file:
         index=["In target", "Non in target", "Tutti"].index(st.session_state.get("filtro_target", "In target")),
         key="filtro_target"
     )
-    if filtro_target == "In target":
-        df_mmg = df_mmg[df_mmg["in target"] == "x"]
-    elif filtro_target == "Non in target":
-        df_mmg = df_mmg[df_mmg["in target"].isna()]
     
-    # ---------------------------
-    # 3. Filtro per "visto" (Tutti / Visto / Non Visto / Visita VIP)
-    # ---------------------------
     filtro_visto = st.selectbox(
         "👀 Filtra per medici 'VISTO'",
         ["Tutti", "Visto", "Non Visto", "Visita VIP"],
@@ -202,12 +222,14 @@ if file:
         key="filtro_visto"
     )
     
+    # Determina le colonne dei mesi in base al ciclo selezionato
     if ciclo_scelto == "Tutti":
         all_months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
                       "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
         visto_cols = [col for col in all_months if col in df_mmg.columns]
         if not visto_cols:
-            visto_cols = df_mmg.columns[:3]
+            st.error("Colonne del ciclo non trovate nel file Excel.")
+            st.stop()
     else:
         month_cycles = {
             "Ciclo 1 (Gen-Feb-Mar)": ["gennaio", "febbraio", "marzo"],
@@ -218,22 +240,36 @@ if file:
         ciclo_cols = month_cycles.get(ciclo_scelto, [])
         visto_cols = [col for col in ciclo_cols if col in df_mmg.columns]
         if not visto_cols:
-            st.warning(f"Non sono state trovate colonne per {ciclo_scelto}.")
-            visto_cols = df_mmg.columns[:3]
+            st.error(f"Non sono state trovate colonne per {ciclo_scelto}.")
+            st.stop()
     
-    # Convertiamo i valori delle colonne promozionali in stringa, minuscolo e senza spazi extra
+    # Assicuriamoci che i valori nelle colonne dei mesi siano in minuscolo e senza spazi extra
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
-    if filtro_visto == "Visto":
-        # Mostra i medici che hanno almeno una "x" in una delle colonne del periodo
-        df_mmg = df_mmg[df_mmg[visto_cols].eq("x").any(axis=1)]
+    
+    # Suddividi il DataFrame in medici in target e non in target
+    df_in_target = df_mmg[df_mmg["in target"].str.strip().str.lower() == "x"]
+    df_non_target = df_mmg[~(df_mmg["in target"].str.strip().str.lower() == "x")]
+    
+    # Applica il filtro target
+    if filtro_target == "In target":
+        df_filtered_target = df_in_target.copy()
+    elif filtro_target == "Non in target":
+        df_filtered_target = df_non_target.copy()
+    else:  # "Tutti"
+        df_filtered_target = pd.concat([df_in_target, df_non_target])
+    
+    # Applica il filtro "visto" combinato
+    if filtro_visto == "Tutti":
+        df_mmg = df_filtered_target.copy()
+    elif filtro_visto == "Visto":
+        df_mmg = df_filtered_target[df_filtered_target[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Non Visto":
-        # Mostra i medici che non hanno "x" in nessuna colonna
-        df_mmg = df_mmg[~df_mmg[visto_cols].eq("x").any(axis=1)]
+        df_mmg = df_filtered_target[~df_filtered_target[visto_cols].eq("x").any(axis=1)]
     elif filtro_visto == "Visita VIP":
-        df_mmg = df_mmg[df_mmg[visto_cols].eq("v").any(axis=1)]
+        df_mmg = df_filtered_target[df_filtered_target[visto_cols].eq("v").any(axis=1)]
     
     # ---------------------------
-    # Nuovo filtro: FREQUENZA (dopo "VISTO")
+    # Filtro FREQUENZA
     # ---------------------------
     filtro_frequenza = st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza")
     if filtro_frequenza:
@@ -243,7 +279,7 @@ if file:
             st.warning("La colonna 'frequenza' non è presente nel file Excel.")
     
     # ---------------------------
-    # 4. Filtro per giorno della settimana
+    # Filtro per giorno della settimana
     # ---------------------------
     oggi = datetime.datetime.now(timezone)
     weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
@@ -262,7 +298,7 @@ if file:
     )
     
     # ---------------------------
-    # 5. Filtro per fascia oraria (con opzione "Personalizzato")
+    # Filtro per fascia oraria (con opzione "Personalizzato")
     # ---------------------------
     default_fascia = "Personalizzato"
     fascia_options = ["Mattina", "Pomeriggio", "Mattina e Pomeriggio", "Personalizzato"]
@@ -283,15 +319,13 @@ if file:
             st.session_state["custom_start"] = ora_corrente_dt.time()
             st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(hours=1)).time()
         
-        # Imposta i limiti minimi e massimi per lo slider dalle 07:00 alle 19:00
+        # Imposta i limiti per lo slider (dalle 07:00 alle 19:00)
         default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
         default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19, 0))
         
-        # Preleva i valori di default salvati nel session_state
         default_start = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_start"])
         default_end = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"])
         
-        # Slider per la selezione dell'intervallo orario con formato "HH:mm"
         custom_range = st.slider(
             "Seleziona l'intervallo orario",
             min_value=default_min,
@@ -299,8 +333,6 @@ if file:
             value=(default_start, default_end),
             format="HH:mm"
         )
-        
-        # Estrai orario di inizio e fine dallo slider
         custom_start = custom_range[0].time()
         custom_end = custom_range[1].time()
         
@@ -311,57 +343,7 @@ if file:
         custom_start, custom_end = None, None
     
     # ---------------------------
-    # 6. Filtro per Provincia e Microarea
-    # ---------------------------
-    provincia_lista = ["Ovunque"] + (sorted(df_mmg["provincia"].dropna().unique().tolist()) if "provincia" in df_mmg.columns else [])
-    provincia_scelta = st.selectbox(
-        "📍 Scegli la Provincia",
-        provincia_lista,
-        index=provincia_lista.index(st.session_state.get("provincia_scelta", "Ovunque")),
-        key="provincia_scelta"
-    )
-    # Per la microarea, la lista contiene tutte le microaree univoche; di default non ne è selezionata nessuna
-    microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist()) if "microarea" in df_mmg.columns else []
-    microarea_selezionate = st.multiselect(
-        "📌 Scegli le Microaree",
-        microarea_lista,
-        default=st.session_state.get("microarea_scelta", []),
-        key="microarea_scelta"
-    )
-    
-    # ---------------------------
-    # FUNZIONI PER IL PARSING DEGLI ORARI
-    # ---------------------------
-    def parse_interval(cell_value):
-        if pd.isna(cell_value):
-            return None, None
-        cell_value = str(cell_value).strip()
-        m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
-        if not m:
-            return None, None
-        start_str, end_str = m.groups()
-        fmt = "%H:%M" if ":" in start_str else "%H"
-        try:
-            start_time = datetime.datetime.strptime(start_str, fmt).time()
-            end_time = datetime.datetime.strptime(end_str, fmt).time()
-            return start_time, end_time
-        except:
-            return None, None
-
-    def interval_covers(cell_value, custom_start, custom_end):
-        start_time, end_time = parse_interval(cell_value)
-        if start_time is None or end_time is None:
-            return False
-        return (start_time <= custom_start) and (end_time >= custom_end)
-    
-    def interval_overlaps(cell_value, custom_start, custom_end):
-        start_time, end_time = parse_interval(cell_value)
-        if start_time is None or end_time is None:
-            return False
-        return (start_time < custom_end) and (custom_start < end_time)
-    
-    # ---------------------------
-    # FILTRI PER GIORNO E FASCIA ORARIA
+    # Applichiamo ORA il Filtro Giorno/Fascia oraria
     # ---------------------------
     if giorno_scelto == "sempre":
         giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
@@ -388,12 +370,15 @@ if file:
                     st.stop()
         if fascia_oraria == "Personalizzato":
             df_filtrato = df_mmg[
-                df_mmg[colonne_giorni].apply(lambda row: any(interval_covers(row[col], custom_start, custom_end) for col in colonne_giorni), axis=1)
+                df_mmg[colonne_giorni].apply(
+                    lambda row: any(interval_covers(row[col], custom_start, custom_end) for col in colonne_giorni),
+                    axis=1
+                )
             ]
-            colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea"]
+            colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea", "provincia"]
         else:
             df_filtrato = df_mmg[df_mmg[colonne_giorni].notna().any(axis=1)]
-            colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea"]
+            colonne_da_mostrare = ["nome medico", "città"] + colonne_giorni + ["indirizzo ambulatorio", "microarea", "provincia"]
     else:
         colonna_mattina = f"{giorno_scelto} mattina".lower()
         colonna_pomeriggio = f"{giorno_scelto} pomeriggio".lower()
@@ -407,9 +392,12 @@ if file:
                 st.error(f"Le colonne per il giorno {giorno_scelto} non esistono nel file Excel.")
                 st.stop()
             df_filtrato = df_mmg[
-                df_mmg[col_list].apply(lambda row: any(interval_covers(row[col], custom_start, custom_end) for col in col_list), axis=1)
+                df_mmg[col_list].apply(
+                    lambda row: any(interval_covers(row[col], custom_start, custom_end) for col in col_list),
+                    axis=1
+                )
             ]
-            colonne_da_mostrare = ["nome medico", "città"] + col_list + ["indirizzo ambulatorio", "microarea"]
+            colonne_da_mostrare = ["nome medico", "città"] + col_list + ["indirizzo ambulatorio", "microarea", "provincia"]
         else:
             if fascia_oraria in ["Mattina", "Mattina e Pomeriggio"]:
                 if colonna_mattina not in df_mmg.columns:
@@ -421,76 +409,102 @@ if file:
                     st.stop()
             if fascia_oraria == "Mattina":
                 df_filtrato = df_mmg[df_mmg[colonna_mattina].notna()]
-                colonne_da_mostrare = ["nome medico", "città", colonna_mattina, "indirizzo ambulatorio", "microarea"]
+                colonne_da_mostrare = ["nome medico", "città", colonna_mattina, "indirizzo ambulatorio", "microarea", "provincia"]
             elif fascia_oraria == "Pomeriggio":
                 df_filtrato = df_mmg[df_mmg[colonna_pomeriggio].notna()]
-                colonne_da_mostrare = ["nome medico", "città", colonna_pomeriggio, "indirizzo ambulatorio", "microarea"]
+                colonne_da_mostrare = ["nome medico", "città", colonna_pomeriggio, "indirizzo ambulatorio", "microarea", "provincia"]
             else:
-                df_filtrato = df_mmg[df_mmg[colonna_mattina].notna() | df_mmg[colonna_pomeriggio].notna()]
-                colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio, "indirizzo ambulatorio", "microarea"]
+                df_filtrato = df_mmg[
+                    df_mmg[colonna_mattina].notna() | df_mmg[colonna_pomeriggio].notna()
+                ]
+                colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio, 
+                                       "indirizzo ambulatorio", "microarea", "provincia"]
     
     # ---------------------------
-    # FILTRO PER PROVINCIA E MICROAREA
+    # Filtro Provincia
     # ---------------------------
-    if provincia_scelta != "Ovunque" and "provincia" in df_filtrato.columns:
+    provincia_lista = ["Ovunque"] + sorted(df_mmg["provincia"].dropna().unique().tolist())
+    provincia_scelta = st.selectbox(
+        "📍 Scegli la Provincia",
+        provincia_lista,
+        index=provincia_lista.index(
+            st.session_state.get("provincia_scelta", "Ovunque")
+        ),
+        key="provincia_scelta"
+    )
+    if provincia_scelta.lower() != "ovunque":
         df_filtrato = df_filtrato[
-            df_filtrato["provincia"].str.strip().str.lower() == provincia_scelta.strip().lower()
+            df_filtrato["provincia"].str.lower() == provincia_scelta.lower()
         ]
-    # Se sono state selezionate una o più microaree, applichiamo il filtro;
-    # se nessuna è selezionata (default vuoto) non filtriamo per microarea
-    if microarea_selezionate and "microarea" in df_filtrato.columns:
+    
+    # ---------------------------
+    # Filtro Microarea
+    # ---------------------------
+    microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
+    microarea_selezionate = st.multiselect(
+        "📌 Scegli le Microaree",
+        microarea_lista,
+        default=st.session_state.get("microarea_scelta", []),
+        key="microarea_scelta"
+    )
+    if microarea_selezionate:
+        microareas_lower = [m.lower() for m in microarea_selezionate]
         df_filtrato = df_filtrato[
-            df_filtrato["microarea"].str.strip().str.lower().isin([m.lower() for m in microarea_selezionate])
+            df_filtrato["microarea"].str.lower().isin(microareas_lower)
         ]
     
     # ---------------------------
     # BARRA DI RICERCA
     # ---------------------------
-    search_query = st.text_input("🔎 Cerca nei risultati", placeholder="Inserisci nome, città, microarea, ecc.", key="search_query")
+    search_query = st.text_input(
+        "🔎 Cerca nei risultati", 
+        placeholder="Inserisci nome, città, microarea, ecc.", 
+        key="search_query"
+    )
     if search_query:
         query = search_query.lower()
-        df_filtrato = df_filtrato[
-            df_filtrato.drop(columns=["provincia"], errors="ignore")
-                      .astype(str)
-                      .apply(lambda row: query in " ".join(row).lower(), axis=1)
-        ]
+        # Creiamo una maschera booleana su df_filtrato
+        # (se vuoi includere anche la provincia, rimuovi .drop(columns=["provincia"], errors="ignore"))
+        mask = df_filtrato.drop(columns=["provincia"], errors="ignore") \
+                          .astype(str) \
+                          .apply(lambda row: query in " ".join(row).lower(), axis=1)
+        df_filtrato = df_filtrato[mask]
     
     # ---------------------------
     # CONTEGGIO MEDICI
     # ---------------------------
-    num_unique_medici = df_filtrato["nome medico"].str.lower().nunique()
-    st.write(f"**Numero medici:** {num_unique_medici} 🧮")
-    
-    st.write("### Medici disponibili")
-    
-    # ---------------------------
-    # VISUALIZZAZIONE CON AgGrid
-    # ---------------------------
-    gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-    gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
-    gb.configure_column("nome medico", width=150, resizable=False, lockPosition=True)
-    gb.configure_column("città", width=120, resizable=False, lockPosition=True)
-    for col in colonne_da_mostrare:
-        if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea"]:
-            gb.configure_column(col, width=100, resizable=False, lockPosition=True)
-    gb.configure_column("indirizzo ambulatorio", width=150, resizable=False, lockPosition=True)
-    gb.configure_column("microarea", width=100, resizable=False, lockPosition=True)
-    
-    grid_options = gb.build()
-    grid_options["suppressMovableColumns"] = True
-    
-    AgGrid(df_filtrato[colonne_da_mostrare],
-           gridOptions=grid_options,
-           height=500,
-           fit_columns_on_grid_load=False)
-    
-    # ---------------------------
-    # Possibilità di scaricare il risultato della tabella in CSV
-    # ---------------------------
-    csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Scarica tabella (CSV)",
-        data=csv,
-        file_name="medici_filtrati.csv",
-        mime="text/csv"
-    )
+    if df_filtrato.empty:
+        st.warning("Nessun risultato corrispondente ai filtri selezionati.")
+    else:
+        num_unique_medici = df_filtrato["nome medico"].str.lower().nunique()
+        st.write(f"**Numero medici:** {num_unique_medici} 🧮")
+        
+        st.write("### Medici disponibili")
+        
+        # ---------------------------
+        # VISUALIZZAZIONE CON AgGrid
+        # ---------------------------
+        gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+        gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
+        gb.configure_column("nome medico", width=150, resizable=False, lockPosition=True)
+        gb.configure_column("città", width=120, resizable=False, lockPosition=True)
+        for col in colonne_da_mostrare:
+            if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia"]:
+                gb.configure_column(col, width=100, resizable=False, lockPosition=True)
+        gb.configure_column("indirizzo ambulatorio", width=200, resizable=False, lockPosition=True)
+        gb.configure_column("microarea", width=120, resizable=False, lockPosition=True)
+        gb.configure_column("provincia", width=120, resizable=False, lockPosition=True)
+        
+        gridOptions = gb.build()
+        AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gridOptions, enable_enterprise_modules=False)
+        
+        # ---------------------------
+        # TASTO PER SCARICARE LA TABELLA RISULTATI
+        # ---------------------------
+        csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Scarica risultati CSV",
+            data=csv,
+            file_name="risultati_medici.csv",
+            mime="text/csv"
+        )

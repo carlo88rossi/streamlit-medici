@@ -11,30 +11,13 @@ timezone = pytz.timezone("Europe/Rome")
 # Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
 
-# --- CSS per forzare le colonne side-by-side anche su mobile ---
-st.markdown("""
-<style>
-/* Forza le colonne a rimanere affiancate anche su schermi stretti */
-@media (max-width: 600px) {
-    /* Ogni colonna di default ha una classe .css-1cypcdb, 
-       e Streamlit la impila. Qui costringiamo a non fare il wrap. */
-    .css-1cypcdb {
-        flex-wrap: nowrap !important;  /* niente "riga successiva" */
-        overflow-x: auto;              /* scroll orizzontale se servono più spazi */
-    }
-    /* Se vuoi più flessibilità, puoi usare flex-wrap: wrap e 
-       impostare una larghezza fissa, ma in genere così vedi TUTTI i checkbox in fila */
-}
-</style>
-""", unsafe_allow_html=True)
-
 # --- DEFINIZIONE FUNZIONI UTILI (Parsing orari) ---
 def parse_interval(cell_value):
     """Parsa un valore tipo '08:00-12:00' e restituisce (start_time, end_time) come oggetti time."""
     if pd.isna(cell_value):
         return None, None
     cell_value = str(cell_value).strip()
-    m = re.match(r'(\d{1,2}(?::\d{2})?)\\s*[-–]\\s*(\d{1,2}(?::\d{2})?)', cell_value)
+    m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
     if not m:
         return None, None
     start_str, end_str = m.groups()
@@ -53,7 +36,7 @@ def interval_covers(cell_value, custom_start, custom_end):
         return False
     return (start_time <= custom_start) and (end_time >= custom_end)
 
-# CSS personalizzato per design pulito
+# CSS personalizzato: design pulito e leggibile
 st.markdown(
     """
     <style>
@@ -131,7 +114,7 @@ st.title("📋 Filtro Medici - Ricevimento Settimanale")
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
-# Funzione per azzerare i filtri
+# Funzione per azzerare i filtri: rimuoviamo le chiavi dal session_state
 def azzera_filtri():
     keys_to_clear = [
         "filtro_spec",
@@ -454,26 +437,19 @@ if file:
         ]
     
     # ---------------------------
-    # Filtro Microarea con CHECKBOX in colonne (sempre visibili)
+    # Filtro Microarea con checkbox distribuiti in colonne (sempre visibili)
     # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
     
     st.markdown("### Seleziona Microaree")
-    seleziona_tutte = st.checkbox("Seleziona tutte", value=False, key="seleziona_tutte_microaree")
     microarea_selezionate = []
-    
-    if seleziona_tutte:
-        microarea_selezionate = microarea_lista
-    else:
-        # Creiamo 3 colonne e forziamo la visualizzazione side-by-side (anche su mobile via CSS)
-        cols = st.columns(3)
-        for idx, micro in enumerate(microarea_lista):
-            default_val = False
-            if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
-                default_val = True
-            # Ciascun checkbox va nella colonna corrispondente (ciclica)
-            if cols[idx % 3].checkbox(micro, value=default_val):
-                microarea_selezionate.append(micro)
+    cols = st.columns(3)
+    for idx, micro in enumerate(microarea_lista):
+        default_val = False
+        if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
+            default_val = True
+        if cols[idx % 3].checkbox(micro, value=default_val):
+            microarea_selezionate.append(micro)
     
     st.session_state["microarea_scelta"] = microarea_selezionate
     

@@ -437,28 +437,32 @@ if file:
         ]
 
     # ---------------------------
-    # Filtro Microarea con CHECKBOX in colonne all'interno di un Expander
+    # Filtro Microarea con CHECKBOX dentro un Expander (senza barra di ricerca)
     # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
+
     with st.expander("Seleziona Microaree", expanded=False):
         seleziona_tutte = st.checkbox("Seleziona tutte", value=False)
         microarea_selezionate = []
         
         if seleziona_tutte:
+            # Se l'utente spunta "Seleziona tutte", includiamo tutte le microaree disponibili
             microarea_selezionate = microarea_lista
         else:
-            # Crea 3 colonne per distribuire i checkbox
-            cols = st.columns(3)
-            for idx, micro in enumerate(microarea_lista):
+            # Creiamo un checkbox per ogni microarea
+            for micro in microarea_lista:
                 default_val = False
+                # Se era già selezionata in session_state, la manteniamo
                 if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
                     default_val = True
-                # Distribuisci in modo ciclico i checkbox tra le 3 colonne
-                if cols[idx % 3].checkbox(micro, value=default_val):
+                
+                if st.checkbox(micro, value=default_val):
                     microarea_selezionate.append(micro)
     
+    # Aggiorna session_state con la lista finale di microaree selezionate
     st.session_state["microarea_scelta"] = microarea_selezionate
 
+    # Applica il filtro
     if microarea_selezionate:
         df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
     

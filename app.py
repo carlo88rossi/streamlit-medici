@@ -437,18 +437,19 @@ if file:
         ]
     
     # ---------------------------
-    # Filtro Microarea con checkbox distribuiti in colonne (sempre visibili)
+    # Filtro Microarea con CHECKBOX in singola colonna (ordinato alfabeticamente)
     # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
     
     st.markdown("### Seleziona Microaree")
     microarea_selezionate = []
-    cols = st.columns(3)
-    for idx, micro in enumerate(microarea_lista):
+    
+    # Mostra i checkbox uno dopo l'altro in ordine alfabetico
+    for micro in microarea_lista:
         default_val = False
         if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
             default_val = True
-        if cols[idx % 3].checkbox(micro, value=default_val):
+        if st.checkbox(micro, value=default_val):
             microarea_selezionate.append(micro)
     
     st.session_state["microarea_scelta"] = microarea_selezionate

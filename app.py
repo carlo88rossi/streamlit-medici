@@ -435,34 +435,30 @@ if file:
         df_filtrato = df_filtrato[
             df_filtrato["provincia"].str.lower() == provincia_scelta.lower()
         ]
-
+    
     # ---------------------------
-    # Filtro Microarea con CHECKBOX dentro un Expander (senza barra di ricerca)
+    # Filtro Microarea con CHECKBOX distribuiti in colonne (sempre visibili)
     # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-
-    with st.expander("Seleziona Microaree", expanded=False):
-        seleziona_tutte = st.checkbox("Seleziona tutte", value=False)
-        microarea_selezionate = []
-        
-        if seleziona_tutte:
-            # Se l'utente spunta "Seleziona tutte", includiamo tutte le microaree disponibili
-            microarea_selezionate = microarea_lista
-        else:
-            # Creiamo un checkbox per ogni microarea
-            for micro in microarea_lista:
-                default_val = False
-                # Se era già selezionata in session_state, la manteniamo
-                if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
-                    default_val = True
-                
-                if st.checkbox(micro, value=default_val):
-                    microarea_selezionate.append(micro)
     
-    # Aggiorna session_state con la lista finale di microaree selezionate
+    st.markdown("### Seleziona Microaree")
+    seleziona_tutte = st.checkbox("Seleziona tutte", value=False, key="seleziona_tutte_microaree")
+    microarea_selezionate = []
+    
+    if seleziona_tutte:
+        microarea_selezionate = microarea_lista
+    else:
+        # Crea 3 colonne per distribuire i checkbox
+        cols = st.columns(3)
+        for idx, micro in enumerate(microarea_lista):
+            default_val = False
+            if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
+                default_val = True
+            if cols[idx % 3].checkbox(micro, value=default_val):
+                microarea_selezionate.append(micro)
+    
     st.session_state["microarea_scelta"] = microarea_selezionate
-
-    # Applica il filtro
+    
     if microarea_selezionate:
         df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
     

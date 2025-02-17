@@ -126,7 +126,9 @@ def azzera_filtri():
         "microarea_scelta",
         "search_query",
         "custom_start",
-        "custom_end"
+        "custom_end",
+        "ciclo_scelto",
+        "filtro_frequenza"
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -243,14 +245,13 @@ if file:
             st.error(f"Non sono state trovate colonne per {ciclo_scelto}.")
             st.stop()
     
-    # Assicuriamoci che i valori nelle colonne dei mesi siano in minuscolo e senza spazi extra
+    # Converti tutto in minuscolo/spazi rimossi per uniformità
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
     
-    # Suddividi il DataFrame in medici in target e non in target
+    # Suddividi in target / non in target
     df_in_target = df_mmg[df_mmg["in target"].str.strip().str.lower() == "x"]
     df_non_target = df_mmg[~(df_mmg["in target"].str.strip().str.lower() == "x")]
     
-    # Applica il filtro target
     if filtro_target == "In target":
         df_filtered_target = df_in_target.copy()
     elif filtro_target == "Non in target":
@@ -258,7 +259,7 @@ if file:
     else:  # "Tutti"
         df_filtered_target = pd.concat([df_in_target, df_non_target])
     
-    # Applica il filtro "visto" combinato
+    # Applica il filtro "visto"
     if filtro_visto == "Tutti":
         df_mmg = df_filtered_target.copy()
     elif filtro_visto == "Visto":
@@ -287,7 +288,7 @@ if file:
     if weekday < 5:
         default_giorno = giorni_settimana[weekday]
     else:
-        default_giorno = "sempre"  # Se siamo nel weekend
+        default_giorno = "sempre"
 
     giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     giorno_scelto = st.selectbox(
@@ -313,13 +314,11 @@ if file:
         key="fascia_oraria"
     )
     if fascia_oraria == "Personalizzato":
-        # Inizializza i valori se non sono presenti nel session_state
         if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now(timezone)
             st.session_state["custom_start"] = ora_corrente_dt.time()
             st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(minutes=30)).time()
         
-        # Imposta i limiti per lo slider (dalle 07:00 alle 19:00)
         default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
         default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19, 0))
         
@@ -436,25 +435,35 @@ if file:
         df_filtrato = df_filtrato[
             df_filtrato["provincia"].str.lower() == provincia_scelta.lower()
         ]
-    
+
     # ---------------------------
-    # Filtro Microarea
+    # Filtro Microarea con CHECKBOX in colonne all'interno di un Expander
     # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-    microarea_selezionate = st.multiselect(
-        "📌 Scegli le Microaree",
-        microarea_lista,
-        default=st.session_state.get("microarea_scelta", []),
-        key="microarea_scelta"
-    )
+    with st.expander("Seleziona Microaree", expanded=False):
+        seleziona_tutte = st.checkbox("Seleziona tutte", value=False)
+        microarea_selezionate = []
+        
+        if seleziona_tutte:
+            microarea_selezionate = microarea_lista
+        else:
+            # Crea 3 colonne per distribuire i checkbox
+            cols = st.columns(3)
+            for idx, micro in enumerate(microarea_lista):
+                default_val = False
+                if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
+                    default_val = True
+                # Distribuisci in modo ciclico i checkbox tra le 3 colonne
+                if cols[idx % 3].checkbox(micro, value=default_val):
+                    microarea_selezionate.append(micro)
+    
+    st.session_state["microarea_scelta"] = microarea_selezionate
+
     if microarea_selezionate:
-        microareas_lower = [m.lower() for m in microarea_selezionate]
-        df_filtrato = df_filtrato[
-            df_filtrato["microarea"].str.lower().isin(microareas_lower)
-        ]
+        df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
     
     # ---------------------------
-    # BARRA DI RICERCA
+    # BARRA DI RICERCA GENERICA NEI RISULTATI
     # ---------------------------
     search_query = st.text_input(
         "🔎 Cerca nei risultati", 
@@ -463,8 +472,6 @@ if file:
     )
     if search_query:
         query = search_query.lower()
-        # Creiamo una maschera booleana su df_filtrato
-        # (se vuoi includere anche la provincia, rimuovi .drop(columns=["provincia"], errors="ignore"))
         mask = df_filtrato.drop(columns=["provincia"], errors="ignore") \
                           .astype(str) \
                           .apply(lambda row: query in " ".join(row).lower(), axis=1)

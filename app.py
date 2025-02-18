@@ -317,7 +317,7 @@ if file:
         if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now(timezone)
             st.session_state["custom_start"] = ora_corrente_dt.time()
-            st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(minutes=30)).time()
+            st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(minutes=15)).time()
         
         default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
         default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19, 0))

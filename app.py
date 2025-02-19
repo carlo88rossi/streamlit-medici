@@ -140,7 +140,7 @@ def azzera_filtri():
 
 st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
 
-# --- PULSANTE SPECIALISTI 👨‍⚕️👩‍⚕️ ---
+# --- PULSANTI PER SPECIALISTI ---
 if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     current_selection = st.session_state.get("filtro_spec", default_spec)
     if current_selection == default_spec:
@@ -148,6 +148,13 @@ if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
     else:
         new_selection = default_spec
     st.session_state["filtro_spec"] = new_selection
+    try:
+        st.experimental_rerun()
+    except AttributeError:
+        st.warning("Ricarica manualmente la pagina.")
+
+if st.button("MMG + PED 🩺"):
+    st.session_state["filtro_spec"] = ["MMG", "PED"]
     try:
         st.experimental_rerun()
     except AttributeError:
@@ -168,7 +175,21 @@ if file:
         df_mmg["microarea"] = df_mmg["microarea"].astype(str).str.strip()
     
     # ---------------------------
-    # PRIMO FILTRO: CICLO DEI MESI
+    # CALCOLO DEL CAMPO "ULTIMA VISITA"
+    # ---------------------------
+    mesi = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", 
+            "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+    def get_ultima_visita(row):
+        ultima = ""
+        # Itera sui mesi in ordine (dal più vecchio al più recente)
+        for m in mesi:
+            if m in row and str(row[m]).strip().lower() == "x":
+                ultima = m.capitalize()
+        return ultima
+    df_mmg["ultima visita"] = df_mmg.apply(get_ultima_visita, axis=1)
+    
+    # ---------------------------
+    # Selezione del Ciclo e progress bar personalizzata
     # ---------------------------
     ciclo_options = [
         "Tutti",
@@ -179,8 +200,9 @@ if file:
     ]
     current_date = datetime.datetime.now(timezone)
     month_names = {
-        1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile", 5: "Maggio", 6: "Giugno",
-        7: "Luglio", 8: "Agosto", 9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre"
+        1: "Gennaio", 2: "Febbraio", 3: "Marzo", 4: "Aprile",
+        5: "Maggio", 6: "Giugno", 7: "Luglio", 8: "Agosto",
+        9: "Settembre", 10: "Ottobre", 11: "Novembre", 12: "Dicembre"
     }
     current_month_name = month_names[current_date.month]
     if current_date.month in [1, 2, 3]:
@@ -194,6 +216,37 @@ if file:
 
     label_ciclo = f"💠 SELEZIONA CICLO ({current_month_name} {current_date.year})"
     ciclo_scelto = st.selectbox(label_ciclo, ciclo_options, index=default_cycle_index, key="ciclo_scelto")
+    
+    # Calcolo della percentuale di medici visti (solo MMG e PED in target) per il ciclo selezionato
+    if ciclo_scelto == "Tutti":
+        selected_cycle_cols = [m for m in mesi if m in df_mmg.columns]
+    else:
+        month_cycles = {
+            "Ciclo 1 (Gen-Feb-Mar)": ["gennaio", "febbraio", "marzo"],
+            "Ciclo 2 (Apr-Mag-Giu)": ["aprile", "maggio", "giugno"],
+            "Ciclo 3 (Lug-Ago-Set)": ["luglio", "agosto", "settembre"],
+            "Ciclo 4 (Ott-Nov-Dic)": ["ottobre", "novembre", "dicembre"]
+        }
+        selected_cycle_cols = month_cycles.get(ciclo_scelto, [])
+    
+    # Filtra i medici MMG e PED in target
+    df_target = df_mmg[(df_mmg["spec"].isin(["MMG", "PED"])) & (df_mmg["in target"].str.strip().str.lower() == "x")]
+    def visited(row):
+        return any(str(row.get(col, "")).strip().lower() == "x" for col in selected_cycle_cols)
+    visited_count = df_target[df_target.apply(visited, axis=1)].shape[0]
+    total_count = df_target.shape[0]
+    percentage = int((visited_count / total_count) * 100) if total_count else 0
+
+    # Barra progressiva personalizzata (HTML/CSS)
+    progress_html = f"""
+    <div style="width: 100%; background-color: #e0e0e0; border-radius: 10px; padding: 3px; margin: 10px 0;">
+      <div style="width: {percentage}%; background-color: #007bff; height: 25px; border-radius: 7px; text-align: center; color: white; font-weight: bold;">
+        {percentage}%
+      </div>
+    </div>
+    """
+    st.markdown(f"**Medici visti in {ciclo_scelto}: {percentage}%**", unsafe_allow_html=True)
+    st.markdown(progress_html, unsafe_allow_html=True)
     
     # ---------------------------
     # 1. Filtro per specialista (spec)
@@ -216,7 +269,6 @@ if file:
         index=["In target", "Non in target", "Tutti"].index(st.session_state.get("filtro_target", "In target")),
         key="filtro_target"
     )
-    
     filtro_visto = st.selectbox(
         "👀 Filtra per medici 'VISTO'",
         ["Tutti", "Visto", "Non Visto", "Visita VIP"],
@@ -226,8 +278,7 @@ if file:
     
     # Determina le colonne dei mesi in base al ciclo selezionato
     if ciclo_scelto == "Tutti":
-        all_months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-                      "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+        all_months = mesi
         visto_cols = [col for col in all_months if col in df_mmg.columns]
         if not visto_cols:
             st.error("Colonne del ciclo non trovate nel file Excel.")
@@ -245,18 +296,17 @@ if file:
             st.error(f"Non sono state trovate colonne per {ciclo_scelto}.")
             st.stop()
     
-    # Converti tutto in minuscolo/spazi rimossi per uniformità
+    # Uniforma i valori nelle colonne del ciclo
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
     
-    # Suddividi in target / non in target
+    # Suddividi in medici in target e non in target
     df_in_target = df_mmg[df_mmg["in target"].str.strip().str.lower() == "x"]
     df_non_target = df_mmg[~(df_mmg["in target"].str.strip().str.lower() == "x")]
-    
     if filtro_target == "In target":
         df_filtered_target = df_in_target.copy()
     elif filtro_target == "Non in target":
         df_filtered_target = df_non_target.copy()
-    else:  # "Tutti"
+    else:
         df_filtered_target = pd.concat([df_in_target, df_non_target])
     
     # Applica il filtro "visto"
@@ -283,13 +333,9 @@ if file:
     # Filtro per giorno della settimana
     # ---------------------------
     oggi = datetime.datetime.now(timezone)
-    weekday = oggi.weekday()  # 0: lunedì, 1: martedì, ..., 6: domenica
+    weekday = oggi.weekday()
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
-    if weekday < 5:
-        default_giorno = giorni_settimana[weekday]
-    else:
-        default_giorno = "sempre"
-
+    default_giorno = giorni_settimana[weekday] if weekday < 5 else "sempre"
     giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
@@ -306,7 +352,6 @@ if file:
     fascia_value = st.session_state.get("fascia_oraria")
     if fascia_value is None or fascia_value not in fascia_options:
         fascia_value = default_fascia
-
     fascia_oraria = st.radio(
         "🌞 Scegli la fascia oraria",
         fascia_options,
@@ -317,14 +362,11 @@ if file:
         if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
             ora_corrente_dt = datetime.datetime.now(timezone)
             st.session_state["custom_start"] = ora_corrente_dt.time()
-            st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(minutes=15)).time()
-        
+            st.session_state["custom_end"] = (ora_corrente_dt + datetime.timedelta(minutes=30)).time()
         default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
         default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19, 0))
-        
         default_start = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_start"])
         default_end = datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"])
-        
         custom_range = st.slider(
             "Seleziona l'intervallo orario",
             min_value=default_min,
@@ -334,7 +376,6 @@ if file:
         )
         custom_start = custom_range[0].time()
         custom_end = custom_range[1].time()
-        
         if custom_end <= custom_start:
             st.error("L'orario di fine deve essere successivo all'orario di inizio.")
             st.stop()
@@ -342,7 +383,7 @@ if file:
         custom_start, custom_end = None, None
     
     # ---------------------------
-    # Applichiamo ORA il Filtro Giorno/Fascia oraria
+    # Applichiamo il Filtro Giorno/Fascia oraria
     # ---------------------------
     if giorno_scelto == "sempre":
         giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
@@ -416,49 +457,51 @@ if file:
                 df_filtrato = df_mmg[
                     df_mmg[colonna_mattina].notna() | df_mmg[colonna_pomeriggio].notna()
                 ]
-                colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio, 
+                colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio,
                                        "indirizzo ambulatorio", "microarea", "provincia"]
+    
+    # ---------------------------
+    # Assicuriamoci che "ultima visita" sia presente in df_filtrato
+    # ---------------------------
+    if "ultima visita" not in df_filtrato.columns:
+        df_filtrato["ultima visita"] = df_mmg["ultima visita"]
+    
+    # Aggiunta del campo "ULTIMA VISITA" come ultima colonna
+    if "ultima visita" in colonne_da_mostrare:
+        colonne_da_mostrare.remove("ultima visita")
+    colonne_da_mostrare.append("ultima visita")
     
     # ---------------------------
     # Filtro Provincia
     # ---------------------------
-    provincia_lista = ["Ovunque"] + sorted(df_mmg["provincia"].dropna().unique().tolist())
+    provincia_lista = ["Ovunque"] + sorted([p for p in df_mmg["provincia"].dropna().unique().tolist() if p.lower() != "nan"])
     provincia_scelta = st.selectbox(
         "📍 Scegli la Provincia",
         provincia_lista,
-        index=provincia_lista.index(
-            st.session_state.get("provincia_scelta", "Ovunque")
-        ),
+        index=provincia_lista.index(st.session_state.get("provincia_scelta", "Ovunque")),
         key="provincia_scelta"
     )
     if provincia_scelta.lower() != "ovunque":
-        df_filtrato = df_filtrato[
-            df_filtrato["provincia"].str.lower() == provincia_scelta.lower()
-        ]
+        df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == provincia_scelta.lower()]
     
     # ---------------------------
-    # Filtro Microarea con CHECKBOX in singola colonna (ordinato alfabeticamente)
+    # Filtro Microarea con CHECKBOX (ordinato alfabeticamente)
     # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-    
     st.markdown("### Seleziona Microaree")
     microarea_selezionate = []
-    
-    # Mostra i checkbox uno dopo l'altro in ordine alfabetico
     for micro in microarea_lista:
         default_val = False
         if "microarea_scelta" in st.session_state and micro in st.session_state["microarea_scelta"]:
             default_val = True
         if st.checkbox(micro, value=default_val):
             microarea_selezionate.append(micro)
-    
     st.session_state["microarea_scelta"] = microarea_selezionate
-    
     if microarea_selezionate:
         df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
     
     # ---------------------------
-    # BARRA DI RICERCA GENERICA NEI RISULTATI
+    # Barra di ricerca
     # ---------------------------
     search_query = st.text_input(
         "🔎 Cerca nei risultati", 
@@ -467,42 +510,48 @@ if file:
     )
     if search_query:
         query = search_query.lower()
-        mask = df_filtrato.drop(columns=["provincia"], errors="ignore") \
-                          .astype(str) \
-                          .apply(lambda row: query in " ".join(row).lower(), axis=1)
+        mask = df_filtrato.drop(columns=["provincia"], errors="ignore").astype(str).apply(lambda row: query in " ".join(row).lower(), axis=1)
         df_filtrato = df_filtrato[mask]
     
     # ---------------------------
-    # CONTEGGIO MEDICI
+    # Ordinamento per orario crescente
+    # ---------------------------
+    time_cols = [col for col in colonne_da_mostrare if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita"]]
+    def get_min_start_time(row):
+        times = []
+        for col in time_cols:
+            start_time, _ = parse_interval(row.get(col))
+            if start_time is not None:
+                times.append(start_time)
+        return min(times) if times else datetime.time(23, 59)
+    df_filtrato["orario_inizio"] = df_filtrato.apply(get_min_start_time, axis=1)
+    df_filtrato = df_filtrato.sort_values("orario_inizio").drop(columns=["orario_inizio"])
+    
+    # ---------------------------
+    # Visualizzazione con AgGrid e download CSV
     # ---------------------------
     if df_filtrato.empty:
         st.warning("Nessun risultato corrispondente ai filtri selezionati.")
     else:
         num_unique_medici = df_filtrato["nome medico"].str.lower().nunique()
         st.write(f"**Numero medici:** {num_unique_medici} 🧮")
-        
         st.write("### Medici disponibili")
         
-        # ---------------------------
-        # VISUALIZZAZIONE CON AgGrid
-        # ---------------------------
         gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
         gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
         gb.configure_column("nome medico", width=150, resizable=False, lockPosition=True)
         gb.configure_column("città", width=120, resizable=False, lockPosition=True)
         for col in colonne_da_mostrare:
-            if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia"]:
+            if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita"]:
                 gb.configure_column(col, width=100, resizable=False, lockPosition=True)
         gb.configure_column("indirizzo ambulatorio", width=200, resizable=False, lockPosition=True)
         gb.configure_column("microarea", width=120, resizable=False, lockPosition=True)
         gb.configure_column("provincia", width=120, resizable=False, lockPosition=True)
+        gb.configure_column("ultima visita", width=120, resizable=False, lockPosition=True)
         
         gridOptions = gb.build()
         AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gridOptions, enable_enterprise_modules=False)
         
-        # ---------------------------
-        # TASTO PER SCARICARE LA TABELLA RISULTATI
-        # ---------------------------
         csv = df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8")
         st.download_button(
             label="Scarica risultati CSV",

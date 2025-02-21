@@ -6,13 +6,11 @@ import datetime
 import re
 import pytz
 import json
-import math
-
-# Importa la funzione per eseguire codice JavaScript
-from streamlit_javascript import st_javascript
 
 # Imposta il fuso orario desiderato (es. "Europe/Rome")
 timezone = pytz.timezone("Europe/Rome")
+
+# Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
 
 # CSS personalizzato: design pulito e leggibile
@@ -89,37 +87,38 @@ st.markdown(
 
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
-# --- GEOLocalizzazione ---
+# --- SEZIONE: Geolocalizzazione ---
 st.markdown("### Geolocalizzazione")
-# Codice JavaScript per ottenere le coordinate dell'utente
-js_code = """
-new Promise((resolve, reject) => {
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-            (position) => resolve(position.coords),
-            (error) => resolve(null)
-        );
-    } else {
-        resolve(null);
-    }
-});
+# Questo blocco HTML esegue del JavaScript che chiede la posizione al browser e la visualizza nella pagina.
+geolocalizzazione_html = """
+<div id="geolocation">
+  <p>Attendi il recupero della posizione...</p>
+</div>
+<script>
+if ("geolocation" in navigator) {
+  navigator.geolocation.getCurrentPosition(
+    function(position) {
+      document.getElementById("geolocation").innerHTML = 
+        "<p><strong>Latitudine:</strong> " + position.coords.latitude + "</p>" +
+        "<p><strong>Longitudine:</strong> " + position.coords.longitude + "</p>";
+    },
+    function(error) {
+      document.getElementById("geolocation").innerHTML = "<p>Impossibile ottenere la posizione: " + error.message + "</p>";
+    },
+    { enableHighAccuracy: true }
+  );
+} else {
+  document.getElementById("geolocation").innerHTML = "<p>Geolocalizzazione non supportata dal browser.</p>";
+}
+</script>
 """
-location = st_javascript(js_code, key="geo")
-if location:
-    user_lat = location.get("latitude")
-    user_lon = location.get("longitude")
-    st.write(f"**Latitudine:** {user_lat}")
-    st.write(f"**Longitudine:** {user_lon}")
-    st.session_state["user_lat"] = user_lat
-    st.session_state["user_lon"] = user_lon
-else:
-    st.warning("Impossibile ottenere la posizione. Assicurati di aver abilitato la geolocalizzazione nel browser.")
+components.html(geolocalizzazione_html, height=150)
 
 # Definizione delle specializzazioni di default ed extra
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
-# --- FUNZIONI UTILI: Parsing orari e calcolo distanza ---
+# --- DEFINIZIONE FUNZIONI UTILI (Parsing orari) ---
 def parse_interval(cell_value):
     """Parsa un valore tipo '08:00-12:00' e restituisce (start_time, end_time) come oggetti time."""
     if pd.isna(cell_value):
@@ -144,17 +143,7 @@ def interval_covers(cell_value, custom_start, custom_end):
         return False
     return (start_time <= custom_start) and (end_time >= custom_end)
 
-def haversine(lon1, lat1, lon2, lat2):
-    """Calcola la distanza in km tra due punti (lat, lon) usando la formula dell'Haversine."""
-    lon1, lat1, lon2, lat2 = map(math.radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-    c = 2 * math.asin(math.sqrt(a))
-    r = 6371  # Raggio della Terra in km
-    return c * r
-
-# Funzione per azzerare i filtri (cancella chiavi nel session_state)
+# Funzione per azzerare i filtri: rimuoviamo le chiavi dal session_state
 def azzera_filtri():
     keys_to_clear = [
         "filtro_spec",
@@ -200,7 +189,7 @@ if st.button("MMG + PED 🩺"):
     except AttributeError:
         st.warning("Ricarica manualmente la pagina.")
 
-# --- Caricamento del file Excel ---
+# Caricamento del file Excel
 file = st.file_uploader("Carica il file Excel", type=["xlsx"])
 if file:
     # Legge il file Excel e seleziona il foglio "MMG"
@@ -221,6 +210,7 @@ if file:
             "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
     def get_ultima_visita(row):
         ultima = ""
+        # Itera sui mesi in ordine (dal più vecchio al più recente)
         for m in mesi:
             if m in row and str(row[m]).strip().lower() == "x":
                 ultima = m.capitalize()
@@ -256,6 +246,7 @@ if file:
     label_ciclo = f"💠 SELEZIONA CICLO ({current_month_name} {current_date.year})"
     ciclo_scelto = st.selectbox(label_ciclo, ciclo_options, index=default_cycle_index, key="ciclo_scelto")
     
+    # Calcolo della percentuale di medici visti (solo MMG e PED in target) per il ciclo selezionato
     if ciclo_scelto == "Tutti":
         selected_cycle_cols = [m for m in mesi if m in df_mmg.columns]
     else:
@@ -269,12 +260,14 @@ if file:
     
     # Filtra i medici MMG e PED in target
     df_target = df_mmg[(df_mmg["spec"].isin(["MMG", "PED"])) & (df_mmg["in target"].str.strip().str.lower() == "x")]
+    # La funzione visited considera "x" o "v" come visita
     def visited(row):
         return any(str(row.get(col, "")).strip().lower() in ["x", "v"] for col in selected_cycle_cols)
     visited_count = df_target[df_target.apply(visited, axis=1)].shape[0]
     total_count = df_target.shape[0]
     percentage = int((visited_count / total_count) * 100) if total_count else 0
 
+    # Barra progressiva personalizzata (HTML/CSS)
     progress_html = f"""
     <div style="width: 100%; background-color: #e0e0e0; border-radius: 10px; padding: 3px; margin: 10px 0;">
       <div style="width: {percentage}%; background-color: #007bff; height: 25px; border-radius: 7px; text-align: center; color: white; font-weight: bold;">
@@ -313,6 +306,7 @@ if file:
         key="filtro_visto"
     )
     
+    # Determina le colonne dei mesi in base al ciclo selezionato
     if ciclo_scelto == "Tutti":
         all_months = mesi
         visto_cols = [col for col in all_months if col in df_mmg.columns]
@@ -332,8 +326,10 @@ if file:
             st.error(f"Non sono state trovate colonne per {ciclo_scelto}.")
             st.stop()
     
+    # Uniforma i valori nelle colonne del ciclo
     df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
     
+    # Suddividi in medici in target e non in target
     df_in_target = df_mmg[df_mmg["in target"].str.strip().str.lower() == "x"]
     df_non_target = df_mmg[~(df_mmg["in target"].str.strip().str.lower() == "x")]
     if filtro_target == "In target":
@@ -343,9 +339,11 @@ if file:
     else:
         df_filtered_target = pd.concat([df_in_target, df_non_target])
     
+    # Applica il filtro "visto"
     if filtro_visto == "Tutti":
         df_mmg = df_filtered_target.copy()
     elif filtro_visto == "Visto":
+        # Considera "x" o "v" come indicazione di visita effettuata
         df_mmg = df_filtered_target[df_filtered_target[visto_cols].isin(["x", "v"]).any(axis=1)]
     elif filtro_visto == "Non Visto":
         df_mmg = df_filtered_target[~df_filtered_target[visto_cols].isin(["x", "v"]).any(axis=1)]
@@ -499,6 +497,7 @@ if file:
     if "ultima visita" not in df_filtrato.columns:
         df_filtrato["ultima visita"] = df_mmg["ultima visita"]
     
+    # Aggiunta del campo "ULTIMA VISITA" come ultima colonna
     if "ultima visita" in colonne_da_mostrare:
         colonne_da_mostrare.remove("ultima visita")
     colonne_da_mostrare.append("ultima visita")
@@ -533,23 +532,6 @@ if file:
         df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
     
     # ---------------------------
-    # Filtro per Distanza dalla posizione
-    # ---------------------------
-    if "user_lat" in st.session_state and "user_lon" in st.session_state:
-        if "lat_medico" in df_filtrato.columns and "lon_medico" in df_filtrato.columns:
-            user_lat = st.session_state["user_lat"]
-            user_lon = st.session_state["user_lon"]
-            df_filtrato["distanza"] = df_filtrato.apply(
-                lambda row: haversine(user_lon, user_lat, row["lon_medico"], row["lat_medico"]), axis=1
-            )
-            max_distanza = st.slider("Seleziona distanza massima (km)", min_value=0, max_value=100, value=50)
-            df_filtrato = df_filtrato[df_filtrato["distanza"] <= max_distanza]
-        else:
-            st.warning("Le colonne per la geolocalizzazione dei medici non sono presenti nel file Excel.")
-    else:
-        st.info("Posizione utente non disponibile: impossibile applicare il filtro per la distanza.")
-    
-    # ---------------------------
     # Barra di ricerca
     # ---------------------------
     search_query = st.text_input(
@@ -559,9 +541,7 @@ if file:
     )
     if search_query:
         query = search_query.lower()
-        mask = df_filtrato.drop(columns=["provincia"], errors="ignore").astype(str).apply(
-            lambda row: query in " ".join(row).lower(), axis=1
-        )
+        mask = df_filtrato.drop(columns=["provincia"], errors="ignore").astype(str).apply(lambda row: query in " ".join(row).lower(), axis=1)
         df_filtrato = df_filtrato[mask]
     
     # ---------------------------

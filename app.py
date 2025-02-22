@@ -1,17 +1,40 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
-import pytz
-import json
+import pytz  # per gestire il fuso orario
 
 # Imposta il fuso orario desiderato (es. "Europe/Rome")
 timezone = pytz.timezone("Europe/Rome")
 
 # Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
+
+# --- DEFINIZIONE FUNZIONI UTILI (Parsing orari) ---
+def parse_interval(cell_value):
+    """Parsa un valore tipo '08:00-12:00' e restituisce (start_time, end_time) come oggetti time."""
+    if pd.isna(cell_value):
+        return None, None
+    cell_value = str(cell_value).strip()
+    m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
+    if not m:
+        return None, None
+    start_str, end_str = m.groups()
+    fmt = "%H:%M" if ":" in start_str else "%H"
+    try:
+        start_time = datetime.datetime.strptime(start_str, fmt).time()
+        end_time = datetime.datetime.strptime(end_str, fmt).time()
+        return start_time, end_time
+    except:
+        return None, None
+
+def interval_covers(cell_value, custom_start, custom_end):
+    """Controlla se l'intervallo orario in cell_value copre completamente [custom_start, custom_end]."""
+    start_time, end_time = parse_interval(cell_value)
+    if start_time is None or end_time is None:
+        return False
+    return (start_time <= custom_start) and (end_time >= custom_end)
 
 # CSS personalizzato: design pulito e leggibile
 st.markdown(
@@ -87,61 +110,9 @@ st.markdown(
 
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
-# --- SEZIONE: Geolocalizzazione ---
-st.markdown("### Geolocalizzazione")
-# Questo blocco HTML esegue del JavaScript che chiede la posizione al browser e la visualizza nella pagina.
-geolocalizzazione_html = """
-<div id="geolocation">
-  <p>Attendi il recupero della posizione...</p>
-</div>
-<script>
-if ("geolocation" in navigator) {
-  navigator.geolocation.getCurrentPosition(
-    function(position) {
-      document.getElementById("geolocation").innerHTML = 
-        "<p><strong>Latitudine:</strong> " + position.coords.latitude + "</p>" +
-        "<p><strong>Longitudine:</strong> " + position.coords.longitude + "</p>";
-    },
-    function(error) {
-      document.getElementById("geolocation").innerHTML = "<p>Impossibile ottenere la posizione: " + error.message + "</p>";
-    },
-    { enableHighAccuracy: true }
-  );
-} else {
-  document.getElementById("geolocation").innerHTML = "<p>Geolocalizzazione non supportata dal browser.</p>";
-}
-</script>
-"""
-components.html(geolocalizzazione_html, height=150)
-
 # Definizione delle specializzazioni di default ed extra
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
-
-# --- DEFINIZIONE FUNZIONI UTILI (Parsing orari) ---
-def parse_interval(cell_value):
-    """Parsa un valore tipo '08:00-12:00' e restituisce (start_time, end_time) come oggetti time."""
-    if pd.isna(cell_value):
-        return None, None
-    cell_value = str(cell_value).strip()
-    m = re.match(r'(\d{1,2}(?::\d{2})?)\s*[-–]\s*(\d{1,2}(?::\d{2})?)', cell_value)
-    if not m:
-        return None, None
-    start_str, end_str = m.groups()
-    fmt = "%H:%M" if ":" in start_str else "%H"
-    try:
-        start_time = datetime.datetime.strptime(start_str, fmt).time()
-        end_time = datetime.datetime.strptime(end_str, fmt).time()
-        return start_time, end_time
-    except:
-        return None, None
-
-def interval_covers(cell_value, custom_start, custom_end):
-    """Controlla se l'intervallo orario in cell_value copre completamente [custom_start, custom_end]."""
-    start_time, end_time = parse_interval(cell_value)
-    if start_time is None or end_time is None:
-        return False
-    return (start_time <= custom_start) and (end_time >= custom_end)
 
 # Funzione per azzerare i filtri: rimuoviamo le chiavi dal session_state
 def azzera_filtri():
@@ -260,7 +231,7 @@ if file:
     
     # Filtra i medici MMG e PED in target
     df_target = df_mmg[(df_mmg["spec"].isin(["MMG", "PED"])) & (df_mmg["in target"].str.strip().str.lower() == "x")]
-    # La funzione visited considera "x" o "v" come visita
+    # Modifica: considera come "visto" anche la "v"
     def visited(row):
         return any(str(row.get(col, "")).strip().lower() in ["x", "v"] for col in selected_cycle_cols)
     visited_count = df_target[df_target.apply(visited, axis=1)].shape[0]

@@ -128,7 +128,8 @@ def azzera_filtri():
         "custom_start",
         "custom_end",
         "ciclo_scelto",
-        "filtro_frequenza"
+        "filtro_frequenza",
+        "filtro_ultima_visita"
     ]
     for key in keys_to_clear:
         if key in st.session_state:
@@ -338,7 +339,7 @@ if file:
     weekday = oggi.weekday()
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     default_giorno = giorni_settimana[weekday] if weekday < 5 else "sempre"
-    giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
+    giorni_opzioni = ["sempre", "lunedì", "martedì", "giovedì", "venerdì", "mercoledì"]
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
         giorni_opzioni,
@@ -501,6 +502,19 @@ if file:
     st.session_state["microarea_scelta"] = microarea_selezionate
     if microarea_selezionate:
         df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
+    
+    # ---------------------------
+    # Filtro per Ultima Visita (mese)
+    # ---------------------------
+    # Utilizziamo uno selectbox con opzione di default "Nessuno"
+    lista_mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
+                  "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+    filtro_ultima_visita = st.selectbox("Seleziona mese ultima visita", 
+                                        options=["Nessuno"] + lista_mesi, 
+                                        index=0, 
+                                        key="filtro_ultima_visita")
+    if filtro_ultima_visita != "Nessuno":
+        df_filtrato = df_filtrato[df_filtrato["ultima visita"].str.lower() == filtro_ultima_visita.lower()]
     
     # ---------------------------
     # Barra di ricerca

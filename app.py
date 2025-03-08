@@ -446,7 +446,7 @@ if file:
                 if colonna_mattina not in df_mmg.columns:
                     st.error(f"La colonna '{colonna_mattina}' non esiste nel file Excel.")
                     st.stop()
-            if fascia_oraria in ["Pomeriggio", "Mattina e Pomeriggio"]:
+            if fascia_oraria in ["Pomeriggio", "Mattina e Pomerigio"]:
                 if colonna_pomeriggio not in df_mmg.columns:
                     st.error(f"La colonna '{colonna_pomeriggio}' non esiste nel file Excel.")
                     st.stop()
@@ -473,6 +473,16 @@ if file:
     if "ultima visita" in colonne_da_mostrare:
         colonne_da_mostrare.remove("ultima visita")
     colonne_da_mostrare.append("ultima visita")
+    
+    # ---------------------------
+    # Aggiunta della colonna "Visite ciclo"
+    # ---------------------------
+    df_filtrato["Visite ciclo"] = df_filtrato[visto_cols].apply(
+        lambda row: sum(str(x).strip().lower() == "x" for x in row),
+        axis=1
+    )
+    if "Visite ciclo" not in colonne_da_mostrare:
+        colonne_da_mostrare.append("Visite ciclo")
     
     # ---------------------------
     # Filtro Provincia
@@ -506,7 +516,6 @@ if file:
     # ---------------------------
     # Filtro per Ultima Visita (mese)
     # ---------------------------
-    # Utilizziamo uno selectbox con opzione di default "Nessuno"
     lista_mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
                   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
     filtro_ultima_visita = st.selectbox("Seleziona mese ultima visita", 
@@ -530,9 +539,11 @@ if file:
         df_filtrato = df_filtrato[mask]
     
     # ---------------------------
-    # Ordinamento per orario crescente
+    # Ordinamento finale:
+    # Ordinamento per "ultima visita" (medici non visitati da più tempo) e, a parità, per orario crescente.
     # ---------------------------
-    time_cols = [col for col in colonne_da_mostrare if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita"]]
+    # Calcoliamo il minore orario di inizio dai campi orari presenti.
+    time_cols = [col for col in colonne_da_mostrare if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita", "Visite ciclo"]]
     def get_min_start_time(row):
         times = []
         for col in time_cols:
@@ -541,7 +552,18 @@ if file:
                 times.append(start_time)
         return min(times) if times else datetime.time(23, 59)
     df_filtrato["orario_inizio"] = df_filtrato.apply(get_min_start_time, axis=1)
-    df_filtrato = df_filtrato.sort_values("orario_inizio").drop(columns=["orario_inizio"])
+    
+    # Creiamo una mappatura per "ultima visita"
+    # I medici senza ultima visita (campo vuoto) otterranno il valore 0 e verranno mostrati per primi.
+    month_order = {"": 0, "Gennaio": 1, "Febbraio": 2, "Marzo": 3, "Aprile": 4, "Maggio": 5, 
+                   "Giugno": 6, "Luglio": 7, "Agosto": 8, "Settembre": 9, "Ottobre": 10, "Novembre": 11, "Dicembre": 12}
+    df_filtrato["ultima_visita_num"] = df_filtrato["ultima visita"].apply(lambda x: month_order.get(x, 0))
+    
+    # Ordinamento: prima per "ultima_visita_num" e, a parità, per "orario_inizio"
+    df_filtrato = df_filtrato.sort_values(by=["ultima_visita_num", "orario_inizio"], ascending=True)
+    
+    # Rimuoviamo le colonne temporanee di ordinamento
+    df_filtrato = df_filtrato.drop(columns=["orario_inizio", "ultima_visita_num"])
     
     # ---------------------------
     # Visualizzazione con AgGrid e download CSV
@@ -558,12 +580,13 @@ if file:
         gb.configure_column("nome medico", width=150, resizable=False, lockPosition=True)
         gb.configure_column("città", width=120, resizable=False, lockPosition=True)
         for col in colonne_da_mostrare:
-            if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita"]:
+            if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita", "Visite ciclo"]:
                 gb.configure_column(col, width=100, resizable=False, lockPosition=True)
         gb.configure_column("indirizzo ambulatorio", width=200, resizable=False, lockPosition=True)
         gb.configure_column("microarea", width=120, resizable=False, lockPosition=True)
         gb.configure_column("provincia", width=120, resizable=False, lockPosition=True)
         gb.configure_column("ultima visita", width=120, resizable=False, lockPosition=True)
+        gb.configure_column("Visite ciclo", width=120, resizable=False, lockPosition=True)
         
         gridOptions = gb.build()
         AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gridOptions, enable_enterprise_modules=False)

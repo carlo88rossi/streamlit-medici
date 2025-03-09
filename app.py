@@ -232,14 +232,12 @@ if file:
     
     # Filtra i medici MMG e PED in target
     df_target = df_mmg[(df_mmg["spec"].isin(["MMG", "PED"])) & (df_mmg["in target"].str.strip().str.lower() == "x")]
-    # Modifica: considera come "visto" anche la "v"
     def visited(row):
         return any(str(row.get(col, "")).strip().lower() in ["x", "v"] for col in selected_cycle_cols)
     visited_count = df_target[df_target.apply(visited, axis=1)].shape[0]
     total_count = df_target.shape[0]
     percentage = int((visited_count / total_count) * 100) if total_count else 0
 
-    # Barra progressiva personalizzata (HTML/CSS)
     progress_html = f"""
     <div style="width: 100%; background-color: #e0e0e0; border-radius: 10px; padding: 3px; margin: 10px 0;">
       <div style="width: {percentage}%; background-color: #007bff; height: 25px; border-radius: 7px; text-align: center; color: white; font-weight: bold;">
@@ -298,10 +296,8 @@ if file:
             st.error(f"Non sono state trovate colonne per {ciclo_scelto}.")
             st.stop()
     
-    # Uniforma i valori nelle colonne del ciclo
-    df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else s)
+    df_mmg[visto_cols] = df_mmg[visto_cols].fillna("").applymap(lambda s: s.lower().strip() if isinstance(s, str) else str(s).strip().lower())
     
-    # Suddividi in medici in target e non in target
     df_in_target = df_mmg[df_mmg["in target"].str.strip().str.lower() == "x"]
     df_non_target = df_mmg[~(df_mmg["in target"].str.strip().str.lower() == "x")]
     if filtro_target == "In target":
@@ -311,20 +307,37 @@ if file:
     else:
         df_filtered_target = pd.concat([df_in_target, df_non_target])
     
-    # Applica il filtro "visto"
+    def is_visited(row):
+        freq = str(row.get("frequenza", "")).strip().lower()
+        if freq == "x":
+            total = 0
+            for col in visto_cols:
+                val = row.get(col, "")
+                if not isinstance(val, str):
+                    val = str(val)
+                val = val.strip().lower()
+                if val in ["x", "v"]:
+                    total += 1
+            return total >= 2
+        else:
+            for col in visto_cols:
+                val = row.get(col, "")
+                if not isinstance(val, str):
+                    val = str(val)
+                val = val.strip().lower()
+                if val in ["x", "v"]:
+                    return True
+            return False
+    
     if filtro_visto == "Tutti":
         df_mmg = df_filtered_target.copy()
     elif filtro_visto == "Visto":
-        # Considera "x" o "v" come indicazione di visita effettuata
-        df_mmg = df_filtered_target[df_filtered_target[visto_cols].isin(["x", "v"]).any(axis=1)]
+        df_mmg = df_filtered_target[df_filtered_target.apply(is_visited, axis=1)]
     elif filtro_visto == "Non Visto":
-        df_mmg = df_filtered_target[~df_filtered_target[visto_cols].isin(["x", "v"]).any(axis=1)]
+        df_mmg = df_filtered_target[~df_filtered_target.apply(is_visited, axis=1)]
     elif filtro_visto == "Visita VIP":
         df_mmg = df_filtered_target[df_filtered_target[visto_cols].eq("v").any(axis=1)]
     
-    # ---------------------------
-    # Filtro FREQUENZA
-    # ---------------------------
     filtro_frequenza = st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza")
     if filtro_frequenza:
         if "frequenza" in df_mmg.columns:
@@ -332,14 +345,14 @@ if file:
         else:
             st.warning("La colonna 'frequenza' non è presente nel file Excel.")
     
-    # ---------------------------
-    # Filtro per giorno della settimana
-    # ---------------------------
     oggi = datetime.datetime.now(timezone)
     weekday = oggi.weekday()
     giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
     default_giorno = giorni_settimana[weekday] if weekday < 5 else "sempre"
-    giorni_opzioni = ["sempre", "lunedì", "martedì", "giovedì", "venerdì", "mercoledì"]
+    
+    # GIORNI IN ORDINE CORRETTO
+    giorni_opzioni = ["sempre", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
+    
     giorno_scelto = st.selectbox(
         "📅 Scegli un giorno della settimana",
         giorni_opzioni,
@@ -347,9 +360,6 @@ if file:
         key="giorno_scelto"
     )
     
-    # ---------------------------
-    # Filtro per fascia oraria (con opzione "Personalizzato")
-    # ---------------------------
     default_fascia = "Personalizzato"
     fascia_options = ["Mattina", "Pomeriggio", "Mattina e Pomeriggio", "Personalizzato"]
     fascia_value = st.session_state.get("fascia_oraria")
@@ -385,9 +395,6 @@ if file:
     else:
         custom_start, custom_end = None, None
     
-    # ---------------------------
-    # Applichiamo il Filtro Giorno/Fascia oraria
-    # ---------------------------
     if giorno_scelto == "sempre":
         giorni_settimana = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì"]
         colonne_giorni = []
@@ -463,30 +470,28 @@ if file:
                 colonne_da_mostrare = ["nome medico", "città", colonna_mattina, colonna_pomeriggio,
                                        "indirizzo ambulatorio", "microarea", "provincia"]
     
-    # ---------------------------
-    # Assicuriamoci che "ultima visita" sia presente in df_filtrato
-    # ---------------------------
     if "ultima visita" not in df_filtrato.columns:
         df_filtrato["ultima visita"] = df_mmg["ultima visita"]
     
-    # Aggiunta del campo "ULTIMA VISITA" come ultima colonna
     if "ultima visita" in colonne_da_mostrare:
         colonne_da_mostrare.remove("ultima visita")
     colonne_da_mostrare.append("ultima visita")
     
-    # ---------------------------
-    # Aggiunta della colonna "Visite ciclo"
-    # ---------------------------
-    df_filtrato["Visite ciclo"] = df_filtrato[visto_cols].apply(
-        lambda row: sum(str(x).strip().lower() == "x" for x in row),
-        axis=1
-    )
+    # La funzione count_visits ora conta "x" e "v" allo stesso modo per tutti i medici
+    def count_visits(row):
+        total = 0
+        for col in visto_cols:
+            val = row.get(col, "")
+            if not isinstance(val, str):
+                val = str(val)
+            val = val.strip().lower()
+            if val in ["x", "v"]:
+                total += 1
+        return total
+    df_filtrato["Visite ciclo"] = df_filtrato[visto_cols].apply(count_visits, axis=1)
     if "Visite ciclo" not in colonne_da_mostrare:
         colonne_da_mostrare.append("Visite ciclo")
     
-    # ---------------------------
-    # Filtro Provincia
-    # ---------------------------
     provincia_lista = ["Ovunque"] + sorted([p for p in df_mmg["provincia"].dropna().unique().tolist() if p.lower() != "nan"])
     provincia_scelta = st.selectbox(
         "📍 Scegli la Provincia",
@@ -497,9 +502,6 @@ if file:
     if provincia_scelta.lower() != "ovunque":
         df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == provincia_scelta.lower()]
     
-    # ---------------------------
-    # Filtro Microarea con CHECKBOX (ordinato alfabeticamente)
-    # ---------------------------
     microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
     st.markdown("### Seleziona Microaree")
     microarea_selezionate = []
@@ -513,9 +515,6 @@ if file:
     if microarea_selezionate:
         df_filtrato = df_filtrato[df_filtrato["microarea"].isin(microarea_selezionate)]
     
-    # ---------------------------
-    # Filtro per Ultima Visita (mese)
-    # ---------------------------
     lista_mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
                   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
     filtro_ultima_visita = st.selectbox("Seleziona mese ultima visita", 
@@ -525,9 +524,6 @@ if file:
     if filtro_ultima_visita != "Nessuno":
         df_filtrato = df_filtrato[df_filtrato["ultima visita"].str.lower() == filtro_ultima_visita.lower()]
     
-    # ---------------------------
-    # Barra di ricerca
-    # ---------------------------
     search_query = st.text_input(
         "🔎 Cerca nei risultati", 
         placeholder="Inserisci nome, città, microarea, ecc.", 
@@ -538,36 +534,40 @@ if file:
         mask = df_filtrato.drop(columns=["provincia"], errors="ignore").astype(str).apply(lambda row: query in " ".join(row).lower(), axis=1)
         df_filtrato = df_filtrato[mask]
     
-    # ---------------------------
-    # Ordinamento finale:
-    # Ordinamento per "ultima visita" (medici non visitati da più tempo) e, a parità, per orario crescente.
-    # ---------------------------
-    # Calcoliamo il minore orario di inizio dai campi orari presenti.
-    time_cols = [col for col in colonne_da_mostrare if col not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita", "Visite ciclo"]]
     def get_min_start_time(row):
         times = []
-        for col in time_cols:
+        for col in [c for c in colonne_da_mostrare if c not in ["nome medico", "città", "indirizzo ambulatorio", "microarea", "provincia", "ultima visita", "Visite ciclo"]]:
             start_time, _ = parse_interval(row.get(col))
             if start_time is not None:
                 times.append(start_time)
         return min(times) if times else datetime.time(23, 59)
+    
     df_filtrato["orario_inizio"] = df_filtrato.apply(get_min_start_time, axis=1)
     
-    # Creiamo una mappatura per "ultima visita"
-    # I medici senza ultima visita (campo vuoto) otterranno il valore 0 e verranno mostrati per primi.
-    month_order = {"": 0, "Gennaio": 1, "Febbraio": 2, "Marzo": 3, "Aprile": 4, "Maggio": 5, 
-                   "Giugno": 6, "Luglio": 7, "Agosto": 8, "Settembre": 9, "Ottobre": 10, "Novembre": 11, "Dicembre": 12}
-    df_filtrato["ultima_visita_num"] = df_filtrato["ultima visita"].apply(lambda x: month_order.get(x, 0))
+    month_order = {
+        "": 0, "gennaio": 1, "febbraio": 2, "marzo": 3, "aprile": 4, 
+        "maggio": 5, "giugno": 6, "luglio": 7, "agosto": 8, "settembre": 9, 
+        "ottobre": 10, "novembre": 11, "dicembre": 12
+    }
+    df_filtrato["ultima_visita_num"] = df_filtrato["ultima visita"].str.lower().map(month_order).fillna(0)
     
-    # Ordinamento: prima per "ultima_visita_num" e, a parità, per "orario_inizio"
     df_filtrato = df_filtrato.sort_values(by=["ultima_visita_num", "orario_inizio"], ascending=True)
     
-    # Rimuoviamo le colonne temporanee di ordinamento
     df_filtrato = df_filtrato.drop(columns=["orario_inizio", "ultima_visita_num"])
     
-    # ---------------------------
-    # Visualizzazione con AgGrid e download CSV
-    # ---------------------------
+    # Modifica del nome medico:
+    # Se il medico ha frequenza "x", aggiunge * (visite count)
+    # Se in almeno una colonna del periodo compare "v", aggiunge "VIP"
+    def modify_name(row):
+        name = row["nome medico"]
+        if str(row.get("frequenza", "")).strip().lower() == "x":
+            name = name + " * (" + str(row["Visite ciclo"]) + ")"
+        if any(str(row.get(col, "")).strip().lower() == "v" for col in visto_cols):
+            name = name + " VIP"
+        return name
+    if "frequenza" in df_filtrato.columns:
+        df_filtrato["nome medico"] = df_filtrato.apply(modify_name, axis=1)
+    
     if df_filtrato.empty:
         st.warning("Nessun risultato corrispondente ai filtri selezionati.")
     else:

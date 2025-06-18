@@ -150,6 +150,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ---------- *** NUOVA POSIZIONE: SELEZIONE MESE *** -----------------------------
+lista_mesi_cap = [m.capitalize() for m in mesi]
+filtro_ultima = st.selectbox(
+    "Seleziona mese ultima visita",
+    ["Nessuno"] + lista_mesi_cap,
+    index=0,
+    key="filtro_ultima_visita",
+)
+
 # ---------- FILTRO SPEC / TARGET / VISTO / FREQUENZA ----------------------------
 filtro_spec = st.multiselect(
     "🩺 Filtra per tipo di specialista (spec)",
@@ -310,14 +319,7 @@ micro_sel = st.multiselect(
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
-# ---------- FILTRO ULTIMA VISITA (MESE) ----------------------------------------
-lista_mesi = [m.capitalize() for m in mesi]
-filtro_ultima = st.selectbox(
-    "Seleziona mese ultima visita",
-    ["Nessuno"] + lista_mesi,
-    index=0,
-    key="filtro_ultima_visita",
-)
+# ---------- APPLICA FILTRO MESE (in base alla selezione fatta sopra) -----------
 if filtro_ultima!="Nessuno":
     df_filtrato = df_filtrato[df_filtrato["ultima visita"].str.lower()==filtro_ultima.lower()]
 

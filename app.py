@@ -11,6 +11,71 @@ timezone = pytz.timezone("Europe/Rome")
 # Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
 
+# ---------- CSS -----------------------------------------------------------------
+st.markdown("""
+<style>
+body{background:#f8f9fa;color:#212529;}
+[data-testid="stAppViewContainer"]{background:#f8f9fa;}
+h1{font-family:'Helvetica Neue',sans-serif;font-size:2.5rem;text-align:center;
+   color:#007bff;margin-bottom:1.5rem;}
+div.stButton>button{background:#007bff;color:#fff;border:none;border-radius:4px;
+   padding:0.5rem 1rem;font-size:1rem;}
+div.stButton>button:hover{background:#0056b3;}
+.ag-root-wrapper{border:1px solid #dee2e6!important;border-radius:4px;overflow:hidden;}
+.ag-header-cell-label{font-weight:bold;color:#343a40;}
+.ag-row{font-size:0.9rem;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📋 Filtro Medici - Ricevimento Settimanale")
+
+# ---------- CARICAMENTO FILE ----------------------------------------------------
+file = st.file_uploader("Carica il file Excel", type=["xlsx"])
+if not file:
+    st.stop()
+
+# ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
+def azzera_filtri():
+    for k in [
+        "filtro_spec","filtro_target","filtro_visto","giorno_scelto","fascia_oraria",
+        "provincia_scelta","microarea_scelta","search_query","custom_start","custom_end",
+        "ciclo_scelto","filtro_frequenza","filtro_ultima_visita"
+    ]:
+        st.session_state.pop(k, None)
+    st.rerun()
+
+def toggle_specialisti():
+    st.session_state["filtro_spec"] = (
+        ["ORT","FIS","REU","DOL","OTO","DER","INT","END","DIA"]
+        if st.session_state.get("filtro_spec", ["MMG","PED"]) == ["MMG","PED"]
+        else ["MMG","PED"]
+    )
+    st.rerun()
+
+def seleziona_mmg_ped():
+    st.session_state["filtro_spec"] = ["MMG","PED"]
+    st.rerun()
+
+# Pulsanti in orizzontale
+col1, col2, col3 = st.columns([1,1,2])
+with col1:
+    st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
+with col2:
+    st.button("Specialisti 👨‍⚕️👩‍⚕️", on_click=toggle_specialisti)
+with col3:
+    st.button("MMG + PED 🩺", on_click=seleziona_mmg_ped)
+
+# ---------- LETTURA E PREPARAZIONE DATAFRAME ------------------------------------
+xls = pd.ExcelFile(file)
+df_mmg = pd.read_excel(xls, sheet_name="MMG")
+df_mmg.columns = df_mmg.columns.str.lower()
+
+# Pulizia iniziale
+if "provincia" in df_mmg.columns:
+    df_mmg["provincia"] = df_mmg["provincia"].astype(str).str.strip()
+if "microarea" in df_mmg.columns:
+    df_mmg["microarea"] = df_mmg["microarea"].astype(str).str.strip()
+
 # ---------- FUNZIONI UTILI ------------------------------------------------------
 def parse_interval(cell_value):
     if pd.isna(cell_value):
@@ -35,71 +100,10 @@ def interval_covers(cell_value, custom_start, custom_end):
         return False
     return start_t <= custom_start and end_t >= custom_end
 
-# ---------- CSS -----------------------------------------------------------------
-st.markdown("""
-<style>
-body{background:#f8f9fa;color:#212529;}
-[data-testid="stAppViewContainer"]{background:#f8f9fa;}
-h1{font-family:'Helvetica Neue',sans-serif;font-size:2.5rem;text-align:center;
-   color:#007bff;margin-bottom:1.5rem;}
-div.stButton>button{background:#007bff;color:#fff;border:none;border-radius:4px;
-   padding:0.5rem 1rem;font-size:1rem;}
-div.stButton>button:hover{background:#0056b3;}
-.ag-root-wrapper{border:1px solid #dee2e6!important;border-radius:4px;overflow:hidden;}
-.ag-header-cell-label{font-weight:bold;color:#343a40;}
-.ag-row{font-size:0.9rem;}
-</style>
-""", unsafe_allow_html=True)
-
-st.title("📋 Filtro Medici - Ricevimento Settimanale")
-
-# ---------- COSTANTI ------------------------------------------------------------
-default_spec = ["MMG", "PED"]
-spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
+# ---------- CALCOLO "ULTIMA VISITA" ---------------------------------------------
 mesi = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
         "luglio","agosto","settembre","ottobre","novembre","dicembre"]
 
-# ---------- RESET FILTRI ---------------------------------------------------------
-def azzera_filtri():
-    for k in [
-        "filtro_spec","filtro_target","filtro_visto","giorno_scelto","fascia_oraria",
-        "provincia_scelta","microarea_scelta","search_query","custom_start","custom_end",
-        "ciclo_scelto","filtro_frequenza","filtro_ultima_visita"
-    ]:
-        st.session_state.pop(k, None)
-    st.experimental_rerun()
-
-st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
-
-# ---------- PULSANTI RAPIDI ------------------------------------------------------
-if st.button("Specialisti 👨‍⚕️👩‍⚕️"):
-    st.session_state["filtro_spec"] = (
-        spec_extra
-        if st.session_state.get("filtro_spec", default_spec) == default_spec
-        else default_spec
-    )
-    st.experimental_rerun()
-
-if st.button("MMG + PED 🩺"):
-    st.session_state["filtro_spec"] = ["MMG", "PED"]
-    st.experimental_rerun()
-
-# ---------- CARICAMENTO FILE ----------------------------------------------------
-file = st.file_uploader("Carica il file Excel", type=["xlsx"])
-if not file:
-    st.stop()
-
-xls = pd.ExcelFile(file)
-df_mmg = pd.read_excel(xls, sheet_name="MMG")
-df_mmg.columns = df_mmg.columns.str.lower()
-
-# Pulizia iniziale
-if "provincia" in df_mmg.columns:
-    df_mmg["provincia"] = df_mmg["provincia"].astype(str).str.strip()
-if "microarea" in df_mmg.columns:
-    df_mmg["microarea"] = df_mmg["microarea"].astype(str).str.strip()
-
-# ---------- CALCOLO "ULTIMA VISITA" ---------------------------------------------
 def get_ultima_visita(row):
     ultima = ""
     for m in mesi:
@@ -108,7 +112,6 @@ def get_ultima_visita(row):
             ultima = m.capitalize()
     return ultima
 
-# Normalizziamo tutte le marcature a lowercase e senza spazi
 for m in mesi:
     if m in df_mmg.columns:
         df_mmg[m] = df_mmg[m].fillna("").astype(str).str.strip().str.lower()
@@ -146,30 +149,22 @@ visto_cols = (
 
 # ---------- FUNZIONI VISITA ----------------------------------------------------
 def is_visited(row):
-    """
-    Un medico con frequenza='x' richiede almeno 2 marcature (x o v) per essere considerato visto.
-    Gli altri richiedono almeno 1 (x o v).
-    """
     freq = str(row.get("frequenza","")).strip().lower()
     count = sum(1 for c in visto_cols if row[c] in ["x","v"])
     return count >= 2 if freq == "x" else count >= 1
 
 def is_vip(row):
-    # VIP se c'è almeno una marcatura 'v'
     return any(row[c] == "v" for c in visto_cols)
 
 def count_visits(row):
-    # conta tutte le marcature x o v
     return sum(1 for c in visto_cols if row[c] in ["x","v"])
 
 def annotate_name(row):
     name = row["nome medico"]
     freq = str(row.get("frequenza","")).strip().lower()
     visits = row["Visite ciclo"]
-    # asterisco per frequenza
     if freq == "x":
         name = f"{name} * ({visits})"
-    # annotazione VIP
     if any(row[c] == "v" for c in visto_cols):
         name = f"{name} (VIP)"
     return name
@@ -203,6 +198,9 @@ filtro_ultima = st.selectbox(
 )
 
 # ---------- FILTRI PRINCIPALI --------------------------------------------------
+default_spec = ["MMG", "PED"]
+spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
+
 filtro_spec = st.multiselect(
     "🩺 Filtra per tipo di specialista (spec)",
     default_spec + spec_extra,
@@ -228,7 +226,7 @@ filtro_visto = st.selectbox(
     key="filtro_visto",
 )
 
-# segmentazione target vs non-target
+# Segmentazione target vs non-target
 is_in = df_mmg["in target"].astype(str).str.strip().str.lower() == "x"
 df_in_target  = df_mmg[is_in]
 df_non_target = df_mmg[~is_in]
@@ -238,7 +236,7 @@ df_filtered_target = {
     "Tutti": pd.concat([df_in_target, df_non_target])
 }[filtro_target]
 
-# ---------- APPLICA FILTRI VISTO/FREQUENZA ------------------------------------
+# Applica filtri visto/frequenza
 if filtro_visto == "Visto":
     df_mmg = df_filtered_target[df_filtered_target.apply(is_visited, axis=1)]
 elif filtro_visto == "Non Visto":
@@ -274,11 +272,11 @@ fascia_oraria = st.radio(
     key="fascia_oraria",
 )
 
-if fascia_oraria=="Personalizzato":
+if fascia_oraria == "Personalizzato":
     if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
         now = datetime.datetime.now(timezone)
         st.session_state["custom_start"] = now.time()
-        st.session_state["custom_end"]   = (now+datetime.timedelta(minutes=15)).time()
+        st.session_state["custom_end"]   = (now + datetime.timedelta(minutes=15)).time()
     default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7,0))
     default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19,0))
     t_start, t_end = st.slider(
@@ -299,29 +297,29 @@ else:
     custom_start = custom_end = None
 
 def filtra_giorno_fascia(df_base):
-    giorni = giorni_settimana if giorno_scelto=="sempre" else [giorno_scelto]
-    colonne = []
+    giorni = giorni_settimana if giorno_scelto == "sempre" else [giorno_scelto]
+    cols = []
     for g in giorni:
         if fascia_oraria in ["Mattina","Mattina e Pomeriggio"]:
-            colonne.append(f"{g} mattina")
+            cols.append(f"{g} mattina")
         if fascia_oraria in ["Pomeriggio","Mattina e Pomeriggio"]:
-            colonne.append(f"{g} pomeriggio")
-        if fascia_oraria=="Personalizzato":
+            cols.append(f"{g} pomeriggio")
+        if fascia_oraria == "Personalizzato":
             for suf in ["mattina","pomeriggio"]:
                 col = f"{g} {suf}"
                 if col in df_base.columns:
-                    colonne.append(col)
-    colonne=[c.lower() for c in colonne if c.lower() in df_base.columns]
-    if not colonne:
+                    cols.append(col)
+    cols = [c.lower() for c in cols if c.lower() in df_base.columns]
+    if not cols:
         st.error("Le colonne per il filtro giorno/fascia non esistono nel file.")
         st.stop()
-    if fascia_oraria=="Personalizzato":
-        df_f = df_base[df_base[colonne].apply(
-            lambda r:any(interval_covers(r[c],custom_start,custom_end) for c in colonne),
+    if fascia_oraria == "Personalizzato":
+        df_f = df_base[df_base[cols].apply(
+            lambda r: any(interval_covers(r[c], custom_start, custom_end) for c in cols),
             axis=1
         )]
-        return df_f, colonne
-    return df_base[df_base[colonne].notna().any(axis=1)], colonne
+        return df_f, cols
+    return df_base[df_base[cols].notna().any(axis=1)], cols
 
 df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_mmg)
 colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
@@ -337,24 +335,24 @@ microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
 micro_sel = st.multiselect(
     "Seleziona Microaree",
     options=microarea_lista,
-    default=st.session_state.get("microarea_scelta",[]),
+    default=st.session_state.get("microarea_scelta", []),
     key="microarea_scelta",
 )
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
-if filtro_ultima!="Nessuno":
-    df_filtrato = df_filtrato[df_filtrato["ultima visita"].str.lower()==filtro_ultima.lower()]
+if filtro_ultima != "Nessuno":
+    df_filtrato = df_filtrato[df_filtrato["ultima visita"].str.lower() == filtro_ultima.lower()]
 
-prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower()!="nan")
+prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
 prov_sel = st.selectbox(
     "📍 Scegli la Provincia",
     prov_lista,
     index=prov_lista.index(st.session_state.get("provincia_scelta","Ovunque")),
     key="provincia_scelta",
 )
-if prov_sel.lower()!="ovunque":
-    df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower()==prov_sel.lower()]
+if prov_sel.lower() != "ovunque":
+    df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()]
 
 # ---------- RICERCA TESTUALE ----------------------------------------------------
 query = st.text_input(
@@ -363,28 +361,30 @@ query = st.text_input(
     key="search_query",
 )
 if query:
-    q=query.lower()
+    q = query.lower()
     df_filtrato = df_filtrato[
-        df_filtrato.drop(columns=["provincia"],errors="ignore")
+        df_filtrato.drop(columns=["provincia"], errors="ignore")
                   .astype(str)
-                  .apply(lambda r:q in " ".join(r).lower(),axis=1)
+                  .apply(lambda r: q in " ".join(r).lower(), axis=1)
     ]
 
 # ---------- ORDINAMENTO ---------------------------------------------------------
 def min_start(row):
-    ts=[]
+    ts = []
     for c in colonne_da_mostrare:
         if c in ["nome medico","città","indirizzo ambulatorio","microarea","provincia","ultima visita","Visite ciclo"]:
             continue
-        stt,_=parse_interval(row.get(c))
-        if stt: ts.append(stt)
+        stt, _ = parse_interval(row.get(c))
+        if stt:
+            ts.append(stt)
     return min(ts) if ts else datetime.time(23,59)
 
-df_filtrato["__start"]=df_filtrato.apply(min_start,axis=1)
-month_order={m:i+1 for i,m in enumerate(mesi)}; month_order[""]=0
-df_filtrato["__ult"]=df_filtrato["ultima visita"].str.lower().map(month_order).fillna(0)
-df_filtrato=df_filtrato.sort_values(by=["__ult","__start"])
-df_filtrato.drop(columns=["__ult","__start"],inplace=True)
+df_filtrato["__start"] = df_filtrato.apply(min_start, axis=1)
+month_order = {m: i+1 for i, m in enumerate(mesi)}
+month_order[""] = 0
+df_filtrato["__ult"] = df_filtrato["ultima visita"].str.lower().map(month_order).fillna(0)
+df_filtrato = df_filtrato.sort_values(by=["__ult","__start"])
+df_filtrato.drop(columns=["__ult","__start"], inplace=True)
 
 # ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
 if df_filtrato.empty:
@@ -392,16 +392,17 @@ if df_filtrato.empty:
 else:
     st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
     st.write("### Medici disponibili")
-    gb=GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-    gb.configure_default_column(sortable=True,filter=True,resizable=False,width=100,lockPosition=True)
-    gb.configure_column("nome medico",width=180)
-    gb.configure_column("città",width=120)
-    gb.configure_column("indirizzo ambulatorio",width=200)
-    gb.configure_column("microarea",width=120)
-    gb.configure_column("provincia",width=120)
-    gb.configure_column("ultima visita",width=120)
-    gb.configure_column("Visite ciclo",width=120)
-    AgGrid(df_filtrato[colonne_da_mostrare],gridOptions=gb.build(),enable_enterprise_modules=False)
+    gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+    gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
+    gb.configure_column("nome medico", width=180)
+    gb.configure_column("città", width=120)
+    gb.configure_column("indirizzo ambulatorio", width=200)
+    gb.configure_column("microarea", width=120)
+    gb.configure_column("provincia", width=120)
+    gb.configure_column("ultima visita", width=120)
+    gb.configure_column("Visite ciclo", width=120)
+    AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gb.build(), enable_enterprise_modules=False)
+
     st.download_button(
         "Scarica risultati CSV",
         df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),

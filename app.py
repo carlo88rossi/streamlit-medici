@@ -30,7 +30,7 @@ div.stButton>button:hover{background:#0056b3;}
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
 # ---------- CARICAMENTO FILE ----------------------------------------------------
-file = st.file_uploader("Carica il file Excel", type=["xlsx"])
+file = st.file_uploader("Carica il file Excel", type=["xlsx"], key="file_uploader")
 if not file:
     st.stop()
 
@@ -56,7 +56,6 @@ def seleziona_mmg_ped():
     st.session_state["filtro_spec"] = ["MMG","PED"]
     st.rerun()
 
-# Pulsanti in orizzontale
 col1, col2, col3 = st.columns([1,1,2])
 with col1:
     st.button("🔄 Azzera tutti i filtri", on_click=azzera_filtri)
@@ -70,7 +69,6 @@ xls = pd.ExcelFile(file)
 df_mmg = pd.read_excel(xls, sheet_name="MMG")
 df_mmg.columns = df_mmg.columns.str.lower()
 
-# Pulizia iniziale
 if "provincia" in df_mmg.columns:
     df_mmg["provincia"] = df_mmg["provincia"].astype(str).str.strip()
 if "microarea" in df_mmg.columns:
@@ -118,6 +116,28 @@ for m in mesi:
 
 df_mmg["ultima visita"] = df_mmg.apply(get_ultima_visita, axis=1)
 
+# ---------- FUNZIONI VISITA ----------------------------------------------------
+def is_visited(row):
+    freq = str(row.get("frequenza","")).strip().lower()
+    count = sum(1 for c in visto_cols if row[c] in ["x","v"])
+    return count >= 2 if freq == "x" else count >= 1
+
+def is_vip(row):
+    return any(row[c] == "v" for c in visto_cols)
+
+def count_visits(row):
+    return sum(1 for c in visto_cols if row[c] in ["x","v"])
+
+def annotate_name(row):
+    name = row["nome medico"]
+    freq = str(row.get("frequenza","")).strip().lower()
+    visits = row["Visite ciclo"]
+    if freq == "x":
+        name = f"{name} * ({visits})"
+    if any(row[c] == "v" for c in visto_cols):
+        name = f"{name} (VIP)"
+    return name
+
 # ---------- SELEZIONE CICLO + KPI -----------------------------------------------
 ciclo_opts = [
     "Tutti",
@@ -147,29 +167,6 @@ visto_cols = (
     else month_cycles[ciclo_scelto]
 )
 
-# ---------- FUNZIONI VISITA ----------------------------------------------------
-def is_visited(row):
-    freq = str(row.get("frequenza","")).strip().lower()
-    count = sum(1 for c in visto_cols if row[c] in ["x","v"])
-    return count >= 2 if freq == "x" else count >= 1
-
-def is_vip(row):
-    return any(row[c] == "v" for c in visto_cols)
-
-def count_visits(row):
-    return sum(1 for c in visto_cols if row[c] in ["x","v"])
-
-def annotate_name(row):
-    name = row["nome medico"]
-    freq = str(row.get("frequenza","")).strip().lower()
-    visits = row["Visite ciclo"]
-    if freq == "x":
-        name = f"{name} * ({visits})"
-    if any(row[c] == "v" for c in visto_cols):
-        name = f"{name} (VIP)"
-    return name
-
-# ---------- BARRE DI AVANZAMENTO ------------------------------------------------
 df_target = df_mmg[
     (df_mmg["spec"].isin(["MMG","PED"])) &
     (df_mmg["in target"].astype(str).str.strip().str.lower() == "x")
@@ -226,7 +223,6 @@ filtro_visto = st.selectbox(
     key="filtro_visto",
 )
 
-# Segmentazione target vs non-target
 is_in = df_mmg["in target"].astype(str).str.strip().str.lower() == "x"
 df_in_target  = df_mmg[is_in]
 df_non_target = df_mmg[~is_in]
@@ -236,7 +232,6 @@ df_filtered_target = {
     "Tutti": pd.concat([df_in_target, df_non_target])
 }[filtro_target]
 
-# Applica filtri visto/frequenza
 if filtro_visto == "Visto":
     df_mmg = df_filtered_target[df_filtered_target.apply(is_visited, axis=1)]
 elif filtro_visto == "Non Visto":
@@ -285,7 +280,7 @@ if fascia_oraria == "Personalizzato":
         max_value=default_max,
         value=(
             datetime.datetime.combine(datetime.date.today(), st.session_state["custom_start"]),
-            datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"]),
+            datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"])
         ),
         format="HH:mm",
     )
@@ -325,10 +320,6 @@ df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_mmg)
 colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio","microarea","provincia","ultima visita"
 ]
-
-# ---------- VISITE CICLO & ASTERISCHI & VIP ------------------------------------
-df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
-df_filtrato["nome medico"] = df_filtrato.apply(annotate_name, axis=1)
 
 # ---------- FILTRO MICROAREA & PROVINCIA ---------------------------------------
 microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
@@ -386,26 +377,32 @@ df_filtrato["__ult"] = df_filtrato["ultima visita"].str.lower().map(month_order)
 df_filtrato = df_filtrato.sort_values(by=["__ult","__start"])
 df_filtrato.drop(columns=["__ult","__start"], inplace=True)
 
-# ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
+# ---------- GESTIONE DATAFRAME VUOTO --------------------------------------------
 if df_filtrato.empty:
     st.warning("Nessun risultato corrispondente ai filtri selezionati.")
-else:
-    st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
-    st.write("### Medici disponibili")
-    gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-    gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
-    gb.configure_column("nome medico", width=180)
-    gb.configure_column("città", width=120)
-    gb.configure_column("indirizzo ambulatorio", width=200)
-    gb.configure_column("microarea", width=120)
-    gb.configure_column("provincia", width=120)
-    gb.configure_column("ultima visita", width=120)
-    gb.configure_column("Visite ciclo", width=120)
-    AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gb.build(), enable_enterprise_modules=False)
+    st.stop()
 
-    st.download_button(
-        "Scarica risultati CSV",
-        df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
-        "risultati_medici.csv",
-        "text/csv",
-    )
+# ---------- VISITE CICLO & ASTERISCHI & VIP ------------------------------------
+df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
+df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
+
+# ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
+st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
+st.write("### Medici disponibili")
+gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
+gb.configure_column("nome medico", width=180)
+gb.configure_column("città", width=120)
+gb.configure_column("indirizzo ambulatorio", width=200)
+gb.configure_column("microarea", width=120)
+gb.configure_column("provincia", width=120)
+gb.configure_column("ultima visita", width=120)
+gb.configure_column("Visite ciclo", width=120)
+AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gb.build(), enable_enterprise_modules=False)
+
+st.download_button(
+    "Scarica risultati CSV",
+    df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
+    "risultati_medici.csv",
+    "text/csv",
+)

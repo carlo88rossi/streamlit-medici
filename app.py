@@ -101,6 +101,8 @@ def interval_covers(cell_value, custom_start, custom_end):
 # ---------- CALCOLO "ULTIMA VISITA" ---------------------------------------------
 mesi = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
         "luglio","agosto","settembre","ottobre","novembre","dicembre"]
+# Mappatura mesi -> numero per filtrare precedenti
+month_order = {m: i+1 for i, m in enumerate(mesi)}
 
 def get_ultima_visita(row):
     ultima = ""
@@ -167,24 +169,6 @@ visto_cols = (
     else month_cycles[ciclo_scelto]
 )
 
-df_target = df_mmg[
-    (df_mmg["spec"].isin(["MMG","PED"])) &
-    (df_mmg["in target"].astype(str).str.strip().str.lower() == "x")
-]
-visited = df_target[df_target.apply(is_visited, axis=1)]
-perc = int(len(visited) / len(df_target) * 100) if len(df_target) else 0
-
-st.markdown(f"**Medici visti in {ciclo_scelto}: {perc}%**", unsafe_allow_html=True)
-st.markdown(
-    f"""
-    <div style="width:100%;background:#e0e0e0;border-radius:10px;margin:10px 0">
-      <div style="width:{perc}%;background:#007bff;height:25px;border-radius:7px;
-                  text-align:center;color:#fff;font-weight:bold">{perc}%</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 # ---------- FILTRO MESE ULTIMA VISITA -------------------------------------------
 lista_mesi_cap = [m.capitalize() for m in mesi]
 filtro_ultima = st.selectbox(
@@ -193,6 +177,16 @@ filtro_ultima = st.selectbox(
     index=0,
     key="filtro_ultima_visita",
 )
+
+# Applica filtro: include mese selezionato e tutti i precedenti
+if filtro_ultima != "Nessuno":
+    sel_num = month_order[filtro_ultima.lower()]
+    df_mmg = df_mmg[
+        df_mmg["ultima visita"]
+            .str.lower()
+            .map(lambda m: month_order.get(m, 0))
+            .le(sel_num)
+    ]
 
 # ---------- FILTRI PRINCIPALI --------------------------------------------------
 default_spec = ["MMG", "PED"]
@@ -332,9 +326,6 @@ micro_sel = st.multiselect(
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
-if filtro_ultima != "Nessuno":
-    df_filtrato = df_filtrato[df_filtrato["ultima visita"].str.lower() == filtro_ultima.lower()]
-
 prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
 prov_sel = st.selectbox(
     "📍 Scegli la Provincia",
@@ -371,9 +362,9 @@ def min_start(row):
     return min(ts) if ts else datetime.time(23,59)
 
 df_filtrato["__start"] = df_filtrato.apply(min_start, axis=1)
-month_order = {m: i+1 for i, m in enumerate(mesi)}
-month_order[""] = 0
-df_filtrato["__ult"] = df_filtrato["ultima visita"].str.lower().map(month_order).fillna(0)
+month_order_sort = {m: i+1 for i, m in enumerate(mesi)}
+month_order_sort[""] = 0
+df_filtrato["__ult"] = df_filtrato["ultima visita"].str.lower().map(month_order_sort).fillna(0)
 df_filtrato = df_filtrato.sort_values(by=["__ult","__start"])
 df_filtrato.drop(columns=["__ult","__start"], inplace=True)
 

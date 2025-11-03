@@ -352,6 +352,26 @@ prov_sel = st.selectbox(
 if prov_sel.lower() != "ovunque":
     df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()]
 
+
+# ---------- FILTRO "MOSTRA SOLO MEDICI VISTI PRIMA DI (INCLUSO)" ---------------
+mesi_cap = [m.capitalize() for m in mesi]
+mese_limite = st.selectbox(
+    "🕰️ Mostra solo medici visti prima di (incluso)",
+    ["Nessuno"] + mesi_cap,
+    index=0,
+    key="mese_limite_visita",
+)
+
+if mese_limite != "Nessuno":
+    sel_num_limite = month_order[mese_limite.lower()]
+    df_filtrato = df_filtrato[
+        df_filtrato["ultima visita"]
+            .str.lower()
+            .map(lambda m: month_order.get(m, 0))
+            .le(sel_num_limite)
+    ]
+
+
 # ---------- RICERCA TESTUALE ----------------------------------------------------
 query = st.text_input(
     "🔎 Cerca nei risultati",

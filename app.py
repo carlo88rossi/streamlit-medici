@@ -101,6 +101,7 @@ def interval_covers(cell_value, custom_start, custom_end):
 # ---------- CALCOLO "ULTIMA VISITA" ---------------------------------------------
 mesi = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
         "luglio","agosto","settembre","ottobre","novembre","dicembre"]
+# Mappatura mesi -> numero per filtrare precedenti
 month_order = {m: i+1 for i, m in enumerate(mesi)}
 
 def get_ultima_visita(row):
@@ -116,6 +117,28 @@ for m in mesi:
         df_mmg[m] = df_mmg[m].fillna("").astype(str).str.strip().str.lower()
 
 df_mmg["ultima visita"] = df_mmg.apply(get_ultima_visita, axis=1)
+
+# ---------- FUNZIONI VISITA ----------------------------------------------------
+def is_visited(row):
+    freq = str(row.get("frequenza","")).strip().lower()
+    count = sum(1 for c in visto_cols if row[c] in ["x","v"])
+    return count >= 2 if freq == "x" else count >= 1
+
+def is_vip(row):
+    return any(row[c] == "v" for c in visto_cols)
+
+def count_visits(row):
+    return sum(1 for c in visto_cols if row[c] in ["x","v"])
+
+def annotate_name(row):
+    name = row["nome medico"]
+    freq = str(row.get("frequenza","")).strip().lower()
+    visits = row["Visite ciclo"]
+    if freq == "x":
+        name = f"{name} * ({visits})"
+    if any(row[c] == "v" for c in visto_cols):
+        name = f"{name} (VIP)"
+    return name
 
 # ---------- SELEZIONE CICLO + KPI -----------------------------------------------
 ciclo_opts = [
@@ -155,6 +178,7 @@ filtro_ultima = st.selectbox(
     key="filtro_ultima_visita",
 )
 
+# Applica filtro: include mese selezionato e tutti i precedenti
 if filtro_ultima != "Nessuno":
     sel_num = month_order[filtro_ultima.lower()]
     df_mmg = df_mmg[
@@ -164,29 +188,7 @@ if filtro_ultima != "Nessuno":
             .le(sel_num)
     ]
 
-# ---------- FUNZIONI VISITA ----------------------------------------------------
-def is_visited(row):
-    freq = str(row.get("frequenza","")).strip().lower()
-    count = sum(1 for c in visto_cols if row[c] in ["x","v"])
-    return count >= 2 if freq == "x" else count >= 1
-
-def is_vip(row):
-    return any(row[c] == "v" for c in visto_cols)
-
-def count_visits(row):
-    return sum(1 for c in visto_cols if row[c] in ["x","v"])
-
-def annotate_name(row):
-    name = row["nome medico"]
-    freq = str(row.get("frequenza","")).strip().lower()
-    visits = row["Visite ciclo"]
-    if freq == "x":
-        name = f"{name} * ({visits})"
-    if any(row[c] == "v" for c in visto_cols):
-        name = f"{name} (VIP)"
-    return name
-
-# ---------- FILTRI --------------------------------------------------------------
+# ---------- FILTRI PRINCIPALI --------------------------------------------------
 default_spec = ["MMG", "PED"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
@@ -198,58 +200,200 @@ filtro_spec = st.multiselect(
 )
 df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]
 
-# ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
-st.write(f"**Numero medici:** {df_mmg['nome medico'].str.lower().nunique()} 🧮")
-st.write("### Medici disponibili")
-
-# CSS: scroll orizzontale su mobile
-st.markdown("""
-<style>
-div[data-testid="stHorizontalBlock"] > div { overflow-x: auto !important; }
-.ag-theme-streamlit-light { min-width: 700px; }
-.ag-header-cell-label { font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
-
-# Griglia responsive
-gb = GridOptionsBuilder.from_dataframe(df_mmg)
-gb.configure_default_column(
-    sortable=True,
-    filter=True,
-    resizable=True,
-    wrapText=False,
-    autoHeight=False
+filtro_target = st.selectbox(
+    "🎯 Scegli il tipo di medici",
+    ["In target","Non in target","Tutti"],
+    index=["In target","Non in target","Tutti"].index(
+        st.session_state.get("filtro_target","In target")
+    ),
+    key="filtro_target",
 )
-gridOptions = gb.build()
-gridOptions["domLayout"] = "normal"
-gridOptions["onFirstDataRendered"] = {
-    "function": """
-        function(params) {
-            let allColumnIds = [];
-            params.columnApi.getAllColumns().forEach(function(column) {
-                allColumnIds.push(column.colId);
-            });
-            params.columnApi.autoSizeColumns(allColumnIds, false);
-        }
-    """
-}
+filtro_visto = st.selectbox(
+    "👀 Filtra per medici 'VISTO'",
+    ["Tutti","Visto","Non Visto","Visita VIP"],
+    index=["Tutti","Visto","Non Visto","Visita VIP"].index(
+        st.session_state.get("filtro_visto","Non Visto")
+    ),
+    key="filtro_visto",
+)
 
-# Mostra griglia scrollabile
-with st.container():
-    st.markdown('<div style="overflow-x:auto;">', unsafe_allow_html=True)
-    AgGrid(
-        df_mmg,
-        gridOptions=gridOptions,
-        enable_enterprise_modules=False,
-        fit_columns_on_grid_load=False,
-        height=600,
+is_in = df_mmg["in target"].astype(str).str.strip().str.lower() == "x"
+df_in_target  = df_mmg[is_in]
+df_non_target = df_mmg[~is_in]
+df_filtered_target = {
+    "In target": df_in_target,
+    "Non in target": df_non_target,
+    "Tutti": pd.concat([df_in_target, df_non_target])
+}[filtro_target]
+
+if filtro_visto == "Visto":
+    df_mmg = df_filtered_target[df_filtered_target.apply(is_visited, axis=1)]
+elif filtro_visto == "Non Visto":
+    df_mmg = df_filtered_target[~df_filtered_target.apply(is_visited, axis=1)]
+elif filtro_visto == "Visita VIP":
+    df_mmg = df_filtered_target[df_filtered_target.apply(is_vip, axis=1)]
+else:
+    df_mmg = df_filtered_target.copy()
+
+if st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza"):
+    if "frequenza" in df_mmg.columns:
+        df_mmg = df_mmg[
+            df_mmg["frequenza"].astype(str).str.strip().str.lower() == "x"
+        ]
+
+# ---------- FILTRO GIORNO / FASCIA ORARIA --------------------------------------
+oggi = datetime.datetime.now(timezone)
+giorni_settimana = ["lunedì","martedì","mercoledì","giovedì","venerdì"]
+giorni_opz = ["sempre"] + giorni_settimana
+giorno_default = giorni_settimana[oggi.weekday()] if oggi.weekday()<5 else "sempre"
+giorno_scelto = st.selectbox(
+    "📅 Scegli un giorno della settimana",
+    giorni_opz,
+    index=giorni_opz.index(st.session_state.get("giorno_scelto",giorno_default)),
+    key="giorno_scelto",
+)
+
+fascia_opts = ["Mattina","Pomeriggio","Mattina e Pomeriggio","Personalizzato"]
+fascia_oraria = st.radio(
+    "🌞 Scegli la fascia oraria",
+    fascia_opts,
+    index=fascia_opts.index(st.session_state.get("fascia_oraria","Personalizzato")),
+    key="fascia_oraria",
+)
+
+if fascia_oraria == "Personalizzato":
+    if "custom_start" not in st.session_state or "custom_end" not in st.session_state:
+        now = datetime.datetime.now(timezone)
+        st.session_state["custom_start"] = now.time()
+        st.session_state["custom_end"]   = (now + datetime.timedelta(minutes=15)).time()
+    default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7,0))
+    default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19,0))
+    t_start, t_end = st.slider(
+        "Seleziona l'intervallo orario",
+        min_value=default_min,
+        max_value=default_max,
+        value=(
+            datetime.datetime.combine(datetime.date.today(), st.session_state["custom_start"]),
+            datetime.datetime.combine(datetime.date.today(), st.session_state["custom_end"])
+        ),
+        format="HH:mm",
     )
-    st.markdown('</div>', unsafe_allow_html=True)
+    custom_start, custom_end = t_start.time(), t_end.time()
+    if custom_end <= custom_start:
+        st.error("L'orario di fine deve essere successivo all'orario di inizio.")
+        st.stop()
+else:
+    custom_start = custom_end = None
 
-# ---------- DOWNLOAD CSV --------------------------------------------------------
+def filtra_giorno_fascia(df_base):
+    giorni = giorni_settimana if giorno_scelto == "sempre" else [giorno_scelto]
+    cols = []
+    for g in giorni:
+        if fascia_oraria in ["Mattina","Mattina e Pomeriggio"]:
+            cols.append(f"{g} mattina")
+        if fascia_oraria in ["Pomeriggio","Mattina e Pomeriggio"]:
+            cols.append(f"{g} pomeriggio")
+        if fascia_oraria == "Personalizzato":
+            for suf in ["mattina","pomeriggio"]:
+                col = f"{g} {suf}"
+                if col in df_base.columns:
+                    cols.append(col)
+    cols = [c.lower() for c in cols if c.lower() in df_base.columns]
+    if not cols:
+        st.error("Le colonne per il filtro giorno/fascia non esistono nel file.")
+        st.stop()
+    if fascia_oraria == "Personalizzato":
+        df_f = df_base[df_base[cols].apply(
+            lambda r: any(interval_covers(r[c], custom_start, custom_end) for c in cols),
+            axis=1
+        )]
+        return df_f, cols
+    return df_base[df_base[cols].notna().any(axis=1)], cols
+
+df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_mmg)
+colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
+    "indirizzo ambulatorio","microarea","provincia","ultima visita"
+]
+
+# ---------- FILTRO MICROAREA & PROVINCIA ---------------------------------------
+microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
+micro_sel = st.multiselect(
+    "Seleziona Microaree",
+    options=microarea_lista,
+    default=st.session_state.get("microarea_scelta", []),
+    key="microarea_scelta",
+)
+if micro_sel:
+    df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
+
+prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
+prov_sel = st.selectbox(
+    "📍 Scegli la Provincia",
+    prov_lista,
+    index=prov_lista.index(st.session_state.get("provincia_scelta","Ovunque")),
+    key="provincia_scelta",
+)
+if prov_sel.lower() != "ovunque":
+    df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()]
+
+# ---------- RICERCA TESTUALE ----------------------------------------------------
+query = st.text_input(
+    "🔎 Cerca nei risultati",
+    placeholder="Inserisci nome, città, microarea, ecc.",
+    key="search_query",
+)
+if query:
+    q = query.lower()
+    df_filtrato = df_filtrato[
+        df_filtrato.drop(columns=["provincia"], errors="ignore")
+                  .astype(str)
+                  .apply(lambda r: q in " ".join(r).lower(), axis=1)
+    ]
+
+# ---------- ORDINAMENTO ---------------------------------------------------------
+def min_start(row):
+    ts = []
+    for c in colonne_da_mostrare:
+        if c in ["nome medico","città","indirizzo ambulatorio","microarea","provincia","ultima visita","Visite ciclo"]:
+            continue
+        stt, _ = parse_interval(row.get(c))
+        if stt:
+            ts.append(stt)
+    return min(ts) if ts else datetime.time(23,59)
+
+df_filtrato["__start"] = df_filtrato.apply(min_start, axis=1)
+month_order_sort = {m: i+1 for i, m in enumerate(mesi)}
+month_order_sort[""] = 0
+df_filtrato["__ult"] = df_filtrato["ultima visita"].str.lower().map(month_order_sort).fillna(0)
+df_filtrato = df_filtrato.sort_values(by=["__ult","__start"])
+df_filtrato.drop(columns=["__ult","__start"], inplace=True)
+
+# ---------- GESTIONE DATAFRAME VUOTO --------------------------------------------
+if df_filtrato.empty:
+    st.warning("Nessun risultato corrispondente ai filtri selezionati.")
+    st.stop()
+
+# ---------- VISITE CICLO & ASTERISCHI & VIP ------------------------------------
+df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
+df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
+
+# ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
+st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
+st.write("### Medici disponibili")
+gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
+gb.configure_column("nome medico", width=180)
+gb.configure_column("città", width=120)
+gb.configure_column("indirizzo ambulatorio", width=200)
+gb.configure_column("microarea", width=120)
+gb.configure_column("provincia", width=120)
+gb.configure_column("ultima visita", width=120)
+gb.configure_column("Visite ciclo", width=120)
+AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gb.build(), enable_enterprise_modules=False)
+
 st.download_button(
-    "📥 Scarica risultati CSV",
-    df_mmg.to_csv(index=False).encode("utf-8"),
+    "Scarica risultati CSV",
+    df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
     "risultati_medici.csv",
     "text/csv",
 )

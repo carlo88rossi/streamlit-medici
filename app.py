@@ -377,51 +377,116 @@ if df_filtrato.empty:
 df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
 df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 
-# ---------- VISUALIZZAZIONE & CSV (VERSIONE MOBILE FUNZIONANTE) ----------
+# ---------- VISUALIZZAZIONE & CSV (VERSIONE CARD-MOBILE AUTOMATICA) ----------
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
-st.write("### Medici disponibili")
 
-# 🔧 CSS per consentire lo scroll orizzontale e non tagliare il testo
-st.markdown("""
-<style>
-/* Forza lo scroll orizzontale su mobile */
-[data-testid="stHorizontalBlock"] {
-    overflow-x: auto !important;
-}
-.ag-root-wrapper {
-    overflow-x: auto !important;
-    max-width: 100% !important;
-}
-
-/* Rende il testo delle celle visibile interamente */
-.ag-cell {
-    white-space: normal !important;
-    word-wrap: break-word !important;
-    text-overflow: clip !important;
-}
-
-/* Evita che AgGrid stringa le colonne */
-.ag-center-cols-container {
-    width: max-content !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# Costruzione dinamica della griglia
-gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-gb.configure_default_column(sortable=True, filter=True, resizable=True)
-gridOptions = gb.build()
-gridOptions["domLayout"] = "autoHeight"
-
-# Visualizzazione con scroll
-AgGrid(
-    df_filtrato[colonne_da_mostrare],
-    gridOptions=gridOptions,
-    enable_enterprise_modules=False,
-    allow_unsafe_jscode=False,
-    theme="balham",
-    height=600,
+# JavaScript invisibile che comunica a Streamlit se l’utente è da mobile
+import streamlit.components.v1 as components
+components.html(
+    """
+    <script>
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    window.parent.postMessage({isMobile: isMobile}, "*");
+    </script>
+    """,
+    height=0,
 )
+
+# Lettura messaggio dal frontend
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+from streamlit.runtime.state.session_state_proxy import SessionStateProxy
+
+# Imposta un flag di default
+if "is_mobile" not in st.session_state:
+    st.session_state.is_mobile = False
+
+# Piccolo placeholder per aggiornare automaticamente il flag JS
+import streamlit.runtime.legacy_caching.caching as caching
+placeholder = st.empty()
+placeholder.write("")
+
+# Gestione messaggi (event listener)
+components.html(
+    """
+    <script>
+    window.addEventListener("message", (event) => {
+        if (event.data && event.data.isMobile !== undefined) {
+            window.parent.postMessage(
+                {streamlitMessage: "setIsMobile", value: event.data.isMobile},
+                "*"
+            );
+        }
+    });
+    </script>
+    """,
+    height=0,
+)
+
+# Mostra versione card se mobile
+if st.session_state.is_mobile:
+    st.write("### 👇 Medici disponibili")
+
+    # CSS per layout a schede
+    st.markdown("""
+    <style>
+    .card-medico {
+        background:#ffffff;
+        border:1px solid #dee2e6;
+        border-radius:12px;
+        padding:12px 16px;
+        margin-bottom:12px;
+        box-shadow:0 1px 3px rgba(0,0,0,0.1);
+    }
+    .card-medico b {
+        color:#007bff;
+        font-size:1.1rem;
+    }
+    .card-medico small {
+        display:block;
+        line-height:1.3;
+        color:#333;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    for _, r in df_filtrato.iterrows():
+        st.markdown(f"""
+        <div class="card-medico">
+            <b>{r['nome medico']}</b><br>
+            <small><b>Città:</b> {r['città']}</small>
+            <small><b>Indirizzo:</b> {r['indirizzo ambulatorio']}</small>
+            <small><b>Microarea:</b> {r['microarea']}</small>
+            <small><b>Provincia:</b> {r['provincia']}</small>
+            <small><b>Ultima visita:</b> {r['ultima visita']}</small>
+        </div>
+        """, unsafe_allow_html=True)
+
+else:
+    # ---------- VISTA DESKTOP / TABLET (AgGrid classica) ----------
+    st.write("### Medici disponibili")
+
+    from st_aggrid import AgGrid, GridOptionsBuilder
+    gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+    gb.configure_default_column(sortable=True, filter=True, resizable=True)
+    gridOptions = gb.build()
+    gridOptions["domLayout"] = "autoHeight"
+    gridOptions["onFirstDataRendered"] = {
+        "function": """
+            setTimeout(() => {
+                const allColumnIds = [];
+                params.columnApi.getAllColumns().forEach(col => allColumnIds.push(col.colId));
+                params.columnApi.autoSizeColumns(allColumnIds, false);
+            }, 200);
+        """
+    }
+
+    AgGrid(
+        df_filtrato[colonne_da_mostrare],
+        gridOptions=gridOptions,
+        enable_enterprise_modules=False,
+        allow_unsafe_jscode=True,
+        theme="balham",
+    )
 
 # ---------- DOWNLOAD CSV --------------------------------------------------------
 st.download_button(

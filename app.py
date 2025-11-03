@@ -379,19 +379,39 @@ df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
 st.write("### Medici disponibili")
 
-# Costruzione griglia migliorata per mobile
+# Costruzione griglia con adattamento automatico perfetto alle celle
 gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-gb.configure_default_column(sortable=True, filter=True, resizable=True, autoSizeAllColumns=True)
+gb.configure_default_column(
+    sortable=True,
+    filter=True,
+    resizable=True,
+    wrapText=True,
+    autoHeight=True
+)
 
+# Costruisce le opzioni della griglia
 gridOptions = gb.build()
+
+# Impostazioni per adattare automaticamente ogni colonna al contenuto
 gridOptions["domLayout"] = "autoHeight"
-gridOptions["onFirstDataRendered"] = {"function": "params.api.sizeColumnsToFit()"}
+gridOptions["onFirstDataRendered"] = {
+    "function": """
+        function(params) {
+            let allColumnIds = [];
+            params.columnApi.getAllColumns().forEach(function(column) {
+                allColumnIds.push(column.colId);
+            });
+            params.columnApi.autoSizeColumns(allColumnIds, false);
+        }
+    """
+}
 
 AgGrid(
     df_filtrato[colonne_da_mostrare],
     gridOptions=gridOptions,
     enable_enterprise_modules=False,
-    fit_columns_on_grid_load=True
+    fit_columns_on_grid_load=False,  # lascia libertà di adattamento naturale
+    height=600,
 )
 
 # ---------- DOWNLOAD CSV --------------------------------------------------------

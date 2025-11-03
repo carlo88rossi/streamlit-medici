@@ -1,13 +1,18 @@
-# ---------- VISUALIZZAZIONE & CSV (AUTO-FIT MIGLIORATO) -------------------------
-if "df_filtrato" in locals() and not df_filtrato.empty:
+# ---------- VISUALIZZAZIONE & CSV (AUTO-FIT MIGLIORATO + CLOUD SAFE) ------------
+# Definizione di sicurezza per Streamlit Cloud
+if "df_filtrato" not in locals():
+    df_filtrato = pd.DataFrame()
+if "colonne_da_mostrare" not in locals():
+    colonne_da_mostrare = []
+
+# Mostra risultati solo se ci sono dati filtrati
+if not df_filtrato.empty and colonne_da_mostrare:
     st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
     st.write("### Medici disponibili")
 
-    # Costruisci le opzioni della griglia
     gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
     gb.configure_default_column(sortable=True, filter=True, resizable=True)
 
-    # Imposta comportamento: adatta automaticamente tutte le colonne al contenuto
     gridOptions = gb.build()
     gridOptions["domLayout"] = "autoHeight"
     gridOptions["onFirstDataRendered"] = {
@@ -28,7 +33,6 @@ if "df_filtrato" in locals() and not df_filtrato.empty:
         theme="balham",
     )
 
-    # ---------- DOWNLOAD CSV --------------------------------------------------------
     st.download_button(
         "📥 Scarica risultati CSV",
         df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),

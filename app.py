@@ -377,8 +377,8 @@ if df_filtrato.empty:
 df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
 df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 
-# ---------- VISUALIZZAZIONE & CSV (AUTO-FIT + CLOUD SAFE) -----------------------
-if file:
+# ---------- VISUALIZZAZIONE & CSV (AUTO-FIT MIGLIORATO + CLOUD SAFE) ------------
+def mostra_tabella(df_filtrato, colonne_da_mostrare):
     st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
     st.write("### Medici disponibili")
 
@@ -393,7 +393,7 @@ if file:
                 const allColumnIds = [];
                 params.columnApi.getAllColumns().forEach(col => allColumnIds.push(col.colId));
                 params.columnApi.autoSizeColumns(allColumnIds, false);
-            }, 300);
+            }, 150);
         """
     }
 
@@ -411,5 +411,18 @@ if file:
         file_name="risultati_medici.csv",
         mime="text/csv",
     )
-else:
-    st.info("⬆️ Carica un file Excel per visualizzare i risultati filtrati.")
+
+
+def main():
+    # Verifica che esistano variabili fondamentali
+    if "df_filtrato" in locals() and "colonne_da_mostrare" in locals():
+        if not df_filtrato.empty:
+            mostra_tabella(df_filtrato, colonne_da_mostrare)
+        else:
+            st.info("⬆️ Carica un file Excel per visualizzare i risultati filtrati.")
+    else:
+        st.info("⬆️ Carica un file Excel per visualizzare i risultati filtrati.")
+
+
+if __name__ == "__main__":
+    main()

@@ -311,9 +311,25 @@ def filtra_giorno_fascia(df_base):
     return df_base[df_base[cols].notna().any(axis=1)], cols
 
 df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_mmg)
+
+# ---- MOSTRA SOLO COLONNE PERTINENTI ALLA FASCIA ORARIA ATTUALE ----
+if fascia_oraria == "Personalizzato":
+    # Determina se siamo in mattina o pomeriggio in base all'orario scelto
+    ora_rif = custom_start.hour
+    if ora_rif < 13:
+        colonne_da_mostrare = [c for c in colonne_da_mostrare if "mattina" in c.lower()]
+    else:
+        colonne_da_mostrare = [c for c in colonne_da_mostrare if "pomeriggio" in c.lower()]
+
+# Se per qualche motivo non resta nessuna colonna (caso limite), mostra comunque tutte
+if not colonne_da_mostrare:
+    colonne_da_mostrare = [c for c in df_mmg.columns if any(x in c for x in ["mattina","pomeriggio"])]
+
+# Aggiungi sempre colonne fisse per leggibilità
 colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio","microarea","provincia","ultima visita"
 ]
+
 
 # ---------- FILTRO MICROAREA & PROVINCIA ---------------------------------------
 microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())

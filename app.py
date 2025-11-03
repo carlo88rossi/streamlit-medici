@@ -375,9 +375,29 @@ if df_filtrato.empty:
 df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
 df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 
-# ---------- VISUALIZZAZIONE & CSV (VERSIONE AUTO-FIT COLONNE COMPLETA) ----------
+# ---------- VISUALIZZAZIONE & CSV (VERSIONE RESPONSIVE DEFINITIVA) ----------
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
 st.write("### Medici disponibili")
+
+# CSS per abilitare scroll orizzontale su mobile e testo visibile
+st.markdown("""
+<style>
+.ag-theme-balham {
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+}
+.ag-cell {
+    white-space: normal !important;
+    word-wrap: break-word !important;
+}
+@media (max-width: 768px) {
+    .ag-root-wrapper {
+        width: 100% !important;
+        overflow-x: scroll !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
 
 # Costruzione dinamica griglia
 gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
@@ -387,28 +407,28 @@ gb.configure_default_column(
     resizable=True,
 )
 
-# Imposta l’altezza automatica della griglia
+# Imposta layout adattivo
 gridOptions = gb.build()
 gridOptions["domLayout"] = "autoHeight"
 
-# 👉 Forza l’adattamento automatico di TUTTE le colonne al contenuto
-# tramite evento onFirstDataRendered
+# Forza auto-size delle colonne al caricamento (solo desktop/tablet)
 gridOptions["onFirstDataRendered"] = {
     "function": """
-        setTimeout(() => {
-            const allColumnIds = [];
-            params.columnApi.getAllColumns().forEach(col => allColumnIds.push(col.colId));
-            params.columnApi.autoSizeColumns(allColumnIds, false);
-        }, 100);
+        if (window.innerWidth > 768) {
+            setTimeout(() => {
+                const allColumnIds = [];
+                params.columnApi.getAllColumns().forEach(col => allColumnIds.push(col.colId));
+                params.columnApi.autoSizeColumns(allColumnIds, false);
+            }, 100);
+        }
     """
 }
 
-# Visualizza la tabella adattiva
 AgGrid(
     df_filtrato[colonne_da_mostrare],
     gridOptions=gridOptions,
     enable_enterprise_modules=False,
-    allow_unsafe_jscode=True,  # serve per eseguire lo script JS sopra
+    allow_unsafe_jscode=True,
     theme="balham",
 )
 

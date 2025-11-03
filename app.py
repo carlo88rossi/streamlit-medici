@@ -377,121 +377,23 @@ if df_filtrato.empty:
 df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
 df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 
-# ---------- VISUALIZZAZIONE & CSV (VERSIONE CARD-MOBILE AUTOMATICA) ----------
+# ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
+st.write("### Medici disponibili")
+gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
+gb.configure_column("nome medico", width=180)
+gb.configure_column("città", width=120)
+gb.configure_column("indirizzo ambulatorio", width=200)
+gb.configure_column("microarea", width=120)
+gb.configure_column("provincia", width=120)
+gb.configure_column("ultima visita", width=120)
+gb.configure_column("Visite ciclo", width=120)
+AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gb.build(), enable_enterprise_modules=False)
 
-# JavaScript invisibile che comunica a Streamlit se l’utente è da mobile
-import streamlit.components.v1 as components
-components.html(
-    """
-    <script>
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    window.parent.postMessage({isMobile: isMobile}, "*");
-    </script>
-    """,
-    height=0,
-)
-
-# Lettura messaggio dal frontend
-from streamlit.runtime.scriptrunner import get_script_run_ctx
-from streamlit.runtime.state.session_state_proxy import SessionStateProxy
-
-# Imposta un flag di default
-if "is_mobile" not in st.session_state:
-    st.session_state.is_mobile = False
-
-# Piccolo placeholder per aggiornare automaticamente il flag JS
-import streamlit.runtime.legacy_caching.caching as caching
-placeholder = st.empty()
-placeholder.write("")
-
-# Gestione messaggi (event listener)
-components.html(
-    """
-    <script>
-    window.addEventListener("message", (event) => {
-        if (event.data && event.data.isMobile !== undefined) {
-            window.parent.postMessage(
-                {streamlitMessage: "setIsMobile", value: event.data.isMobile},
-                "*"
-            );
-        }
-    });
-    </script>
-    """,
-    height=0,
-)
-
-# Mostra versione card se mobile
-if st.session_state.is_mobile:
-    st.write("### 👇 Medici disponibili")
-
-    # CSS per layout a schede
-    st.markdown("""
-    <style>
-    .card-medico {
-        background:#ffffff;
-        border:1px solid #dee2e6;
-        border-radius:12px;
-        padding:12px 16px;
-        margin-bottom:12px;
-        box-shadow:0 1px 3px rgba(0,0,0,0.1);
-    }
-    .card-medico b {
-        color:#007bff;
-        font-size:1.1rem;
-    }
-    .card-medico small {
-        display:block;
-        line-height:1.3;
-        color:#333;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    for _, r in df_filtrato.iterrows():
-        st.markdown(f"""
-        <div class="card-medico">
-            <b>{r['nome medico']}</b><br>
-            <small><b>Città:</b> {r['città']}</small>
-            <small><b>Indirizzo:</b> {r['indirizzo ambulatorio']}</small>
-            <small><b>Microarea:</b> {r['microarea']}</small>
-            <small><b>Provincia:</b> {r['provincia']}</small>
-            <small><b>Ultima visita:</b> {r['ultima visita']}</small>
-        </div>
-        """, unsafe_allow_html=True)
-
-else:
-    # ---------- VISTA DESKTOP / TABLET (AgGrid classica) ----------
-    st.write("### Medici disponibili")
-
-    from st_aggrid import AgGrid, GridOptionsBuilder
-    gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-    gb.configure_default_column(sortable=True, filter=True, resizable=True)
-    gridOptions = gb.build()
-    gridOptions["domLayout"] = "autoHeight"
-    gridOptions["onFirstDataRendered"] = {
-        "function": """
-            setTimeout(() => {
-                const allColumnIds = [];
-                params.columnApi.getAllColumns().forEach(col => allColumnIds.push(col.colId));
-                params.columnApi.autoSizeColumns(allColumnIds, false);
-            }, 200);
-        """
-    }
-
-    AgGrid(
-        df_filtrato[colonne_da_mostrare],
-        gridOptions=gridOptions,
-        enable_enterprise_modules=False,
-        allow_unsafe_jscode=True,
-        theme="balham",
-    )
-
-# ---------- DOWNLOAD CSV --------------------------------------------------------
 st.download_button(
-    "📥 Scarica risultati CSV",
-    data=df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
-    file_name="risultati_medici.csv",
-    mime="text/csv",
+    "Scarica risultati CSV",
+    df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
+    "risultati_medici.csv",
+    "text/csv",
 )

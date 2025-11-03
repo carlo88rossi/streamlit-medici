@@ -101,7 +101,6 @@ def interval_covers(cell_value, custom_start, custom_end):
 # ---------- CALCOLO "ULTIMA VISITA" ---------------------------------------------
 mesi = ["gennaio","febbraio","marzo","aprile","maggio","giugno",
         "luglio","agosto","settembre","ottobre","novembre","dicembre"]
-# Mappatura mesi -> numero per filtrare precedenti
 month_order = {m: i+1 for i, m in enumerate(mesi)}
 
 def get_ultima_visita(row):
@@ -178,7 +177,6 @@ filtro_ultima = st.selectbox(
     key="filtro_ultima_visita",
 )
 
-# Applica filtro: include mese selezionato e tutti i precedenti
 if filtro_ultima != "Nessuno":
     sel_num = month_order[filtro_ultima.lower()]
     df_mmg = df_mmg[
@@ -380,19 +378,25 @@ df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 # ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")
 st.write("### Medici disponibili")
-gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-gb.configure_default_column(sortable=True, filter=True, resizable=False, width=100, lockPosition=True)
-gb.configure_column("nome medico", width=180)
-gb.configure_column("città", width=120)
-gb.configure_column("indirizzo ambulatorio", width=200)
-gb.configure_column("microarea", width=120)
-gb.configure_column("provincia", width=120)
-gb.configure_column("ultima visita", width=120)
-gb.configure_column("Visite ciclo", width=120)
-AgGrid(df_filtrato[colonne_da_mostrare], gridOptions=gb.build(), enable_enterprise_modules=False)
 
+# Costruzione griglia migliorata per mobile
+gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
+gb.configure_default_column(sortable=True, filter=True, resizable=True, autoSizeAllColumns=True)
+
+gridOptions = gb.build()
+gridOptions["domLayout"] = "autoHeight"
+gridOptions["onFirstDataRendered"] = {"function": "params.api.sizeColumnsToFit()"}
+
+AgGrid(
+    df_filtrato[colonne_da_mostrare],
+    gridOptions=gridOptions,
+    enable_enterprise_modules=False,
+    fit_columns_on_grid_load=True
+)
+
+# ---------- DOWNLOAD CSV --------------------------------------------------------
 st.download_button(
-    "Scarica risultati CSV",
+    "📥 Scarica risultati CSV",
     df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
     "risultati_medici.csv",
     "text/csv",

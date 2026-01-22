@@ -194,7 +194,7 @@ if filtro_ultima != "Nessuno":
     ]
 
 # ---------- FILTRI PRINCIPALI --------------------------------------------------
-default_spec = ["MMG", "PED"]
+default_spec = ["MMG"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
 
 filtro_spec = st.multiselect(

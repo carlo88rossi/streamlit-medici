@@ -5,11 +5,6 @@ import datetime
 import re
 import pytz  # per gestire il fuso orario
 
-import altair as alt
-st.sidebar.write("Versioni in uso:")
-st.sidebar.write("Streamlit:", st.__version__, "| Pandas:", pd.__version__, "| Altair:", alt.__version__)
-
-
 # Imposta il fuso orario desiderato
 timezone = pytz.timezone("Europe/Rome")
 
@@ -58,7 +53,7 @@ def toggle_specialisti():
     st.rerun()
 
 def seleziona_mmg_ped():
-    st.session_state["filtro_spec"] = ["MMG","PED"]
+    st.session_state["filtro_spec"] = ["MMG"]
     st.rerun()
 
 col1, col2, col3 = st.columns([1,1,2])
@@ -67,7 +62,7 @@ with col1:
 with col2:
     st.button("Specialisti 👨‍⚕️👩‍⚕️", on_click=toggle_specialisti)
 with col3:
-    st.button("MMG + PED 🩺", on_click=seleziona_mmg_ped)
+    st.button("MMG 🩺", on_click=seleziona_mmg_ped)
 
 # ---------- LETTURA E PREPARAZIONE DATAFRAME ------------------------------------
 xls = pd.ExcelFile(file)

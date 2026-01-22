@@ -1,5 +1,5 @@
 streamlit>=1.32,<2
 altair<6
-streamlit-aggrid
-pandas
-openpyxl
+streamlit-aggrid>=1.0.5
+pandas>=2.0,<3
+openpyxl>=3.1,<4

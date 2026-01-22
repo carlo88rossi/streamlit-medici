@@ -5,6 +5,11 @@ import datetime
 import re
 import pytz  # per gestire il fuso orario
 
+import altair as alt
+st.sidebar.write("Versioni in uso:")
+st.sidebar.write("Streamlit:", st.__version__, "| Pandas:", pd.__version__, "| Altair:", alt.__version__)
+
+
 # Imposta il fuso orario desiderato
 timezone = pytz.timezone("Europe/Rome")
 

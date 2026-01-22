@@ -1,3 +1,5 @@
+streamlit>=1.32,<2
+altair<6
 streamlit-aggrid
 pandas
-openpyxl  # Necessario per leggere file Excel
+openpyxl

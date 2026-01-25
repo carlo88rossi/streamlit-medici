@@ -39,7 +39,7 @@ def azzera_filtri():
     for k in [
         "filtro_spec","filtro_target","filtro_visto","giorno_scelto","fascia_oraria",
         "provincia_scelta","microarea_scelta","search_query","custom_start","custom_end",
-        "ciclo_scelto","filtro_frequenza","filtro_ultima_visita"
+        "ciclo_scelto","filtro_ultima_visita"
     ]:
         st.session_state.pop(k, None)
     st.rerun()
@@ -120,9 +120,8 @@ df_mmg["ultima visita"] = df_mmg.apply(get_ultima_visita, axis=1)
 
 # ---------- FUNZIONI VISITA ----------------------------------------------------
 def is_visited(row):
-    freq = str(row.get("frequenza","")).strip().lower()
     count = sum(1 for c in visto_cols if row[c] in ["x","v"])
-    return count >= 2 if freq == "x" else count >= 1
+    return count >= 1
 
 def is_vip(row):
     return any(row[c] == "v" for c in visto_cols)
@@ -132,10 +131,7 @@ def count_visits(row):
 
 def annotate_name(row):
     name = row["nome medico"]
-    freq = str(row.get("frequenza","")).strip().lower()
     visits = row["Visite ciclo"]
-    if freq == "x":
-        name = f"{name} * ({visits})"
     if any(row[c] == "v" for c in visto_cols):
         name = f"{name} (VIP)"
     return name
@@ -235,12 +231,6 @@ elif filtro_visto == "Visita VIP":
 else:
     df_mmg = df_filtered_target.copy()
 
-if st.checkbox("🔔 FREQUENZA", value=False, key="filtro_frequenza"):
-    if "frequenza" in df_mmg.columns:
-        df_mmg = df_mmg[
-            df_mmg["frequenza"].astype(str).str.strip().str.lower() == "x"
-        ]
-
 # ---------- FILTRO GIORNO / FASCIA ORARIA --------------------------------------
 oggi = datetime.datetime.now(timezone)
 giorni_settimana = ["lunedì","martedì","mercoledì","giovedì","venerdì"]
@@ -330,7 +320,6 @@ colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio","microarea","provincia","ultima visita"
 ]
 
-
 # ---------- FILTRO MICROAREA & PROVINCIA ---------------------------------------
 microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
 micro_sel = st.multiselect(
@@ -352,7 +341,6 @@ prov_sel = st.selectbox(
 if prov_sel.lower() != "ovunque":
     df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()]
 
-
 # ---------- FILTRO "MOSTRA SOLO MEDICI VISTI PRIMA DI (INCLUSO)" ---------------
 mesi_cap = [m.capitalize() for m in mesi]
 mese_limite = st.selectbox(
@@ -370,7 +358,6 @@ if mese_limite != "Nessuno":
             .map(lambda m: month_order.get(m, 0))
             .le(sel_num_limite)
     ]
-
 
 # ---------- RICERCA TESTUALE ----------------------------------------------------
 query = st.text_input(
@@ -409,7 +396,7 @@ if df_filtrato.empty:
     st.warning("Nessun risultato corrispondente ai filtri selezionati.")
     st.stop()
 
-# ---------- VISITE CICLO & ASTERISCHI & VIP ------------------------------------
+# ---------- VISITE CICLO & VIP --------------------------------------------------
 df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
 df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
 

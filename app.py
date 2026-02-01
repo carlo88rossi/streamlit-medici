@@ -5,11 +5,116 @@ import datetime
 import re
 import pytz  # per gestire il fuso orario
 
+import io
+import json
+import urllib.parse
+
 # Imposta il fuso orario desiderato
 timezone = pytz.timezone("Europe/Rome")
 
 # Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
+
+# ---------- PERSISTENZA STATO IN URL (ANTI-RESET MOBILE) ------------------------
+def _get_query_param(key: str):
+    """Compatibilità tra st.query_params e experimental_get_query_params."""
+    try:
+        # Streamlit recente
+        return st.query_params.get(key, None)
+    except Exception:
+        qp = st.experimental_get_query_params()
+        v = qp.get(key, None)
+        if isinstance(v, list):
+            return v[0] if v else None
+        return v
+
+from typing import Optional
+
+def _set_query_param(key: str, value: Optional[str]):
+
+    """Set/clear query param con fallback."""
+    try:
+        if value is None:
+            if key in st.query_params:
+                del st.query_params[key]
+        else:
+            st.query_params[key] = value
+    except Exception:
+        # experimental API usa dict intero: attenzione a non perdere altri parametri
+        qp = st.experimental_get_query_params()
+        if value is None:
+            qp.pop(key, None)
+        else:
+            qp[key] = value
+        st.experimental_set_query_params(**qp)
+
+def _serialize_value(k, v):
+    """Serializzazione robusta per JSON/URL (gestisce time)."""
+    if isinstance(v, datetime.time):
+        return v.strftime("%H:%M:%S")
+    if isinstance(v, (datetime.datetime, datetime.date)):
+        return v.isoformat()
+    return v
+
+def _deserialize_time(s: str):
+    if not s:
+        return None
+    s = str(s).strip()
+    try:
+        if len(s.split(":")) == 2:
+            return datetime.datetime.strptime(s, "%H:%M").time()
+        return datetime.datetime.strptime(s, "%H:%M:%S").time()
+    except Exception:
+        return None
+
+def _encode_state(payload: dict) -> str:
+    raw = json.dumps(payload, ensure_ascii=False)
+    return urllib.parse.quote(raw)
+
+def _decode_state(s: str) -> dict:
+    raw = urllib.parse.unquote(s)
+    return json.loads(raw)
+
+def clear_state_in_url():
+    _set_query_param("state", None)
+
+def load_state_from_url():
+    s = _get_query_param("state")
+    if not s:
+        return
+    try:
+        payload = _decode_state(s)
+        # ripristina in session_state SOLO se non esiste già (evita conflitti widget)
+        for k, v in payload.items():
+            if k not in st.session_state:
+                # parsing time per chiavi note
+                if k in ["custom_start", "custom_end"] and isinstance(v, str):
+                    t = _deserialize_time(v)
+                    if t is not None:
+                        st.session_state[k] = t
+                    else:
+                        st.session_state[k] = v
+                else:
+                    st.session_state[k] = v
+    except Exception:
+        # URL corrotto/non parsabile: ignora
+        pass
+
+def save_state_to_url(keys: list[str]):
+    payload = {}
+    for k in keys:
+        if k in st.session_state:
+            payload[k] = _serialize_value(k, st.session_state[k])
+
+    new_state = _encode_state(payload)
+    old_state = _get_query_param("state")
+
+    # evita update continuo dell'URL
+    if new_state != old_state:
+        _set_query_param("state", new_state)
+
+# Ripristina PRIMA di creare widget con key (fondamentale)
+load_state_from_url()
 
 # ---------- CSS -----------------------------------------------------------------
 st.markdown("""
@@ -39,9 +144,11 @@ def azzera_filtri():
     for k in [
         "filtro_spec","filtro_target","filtro_visto","giorno_scelto","fascia_oraria",
         "provincia_scelta","microarea_scelta","search_query","custom_start","custom_end",
-        "ciclo_scelto","filtro_ultima_visita"
+        "ciclo_scelto","filtro_ultima_visita","mese_limite_visita"
     ]:
         st.session_state.pop(k, None)
+    # pulisci anche stato in URL (altrimenti si ripristina subito)
+    clear_state_in_url()
     st.rerun()
 
 def toggle_specialisti():
@@ -65,8 +172,13 @@ with col3:
     st.button("MMG 🩺", on_click=seleziona_mmg_ped)
 
 # ---------- LETTURA E PREPARAZIONE DATAFRAME ------------------------------------
-xls = pd.ExcelFile(file)
-df_mmg = pd.read_excel(xls, sheet_name="MMG")
+@st.cache_data(show_spinner=False)
+def load_excel(file_bytes: bytes):
+    xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    df = pd.read_excel(xls, sheet_name="MMG")
+    return df
+
+df_mmg = load_excel(file.getvalue())
 df_mmg.columns = df_mmg.columns.str.lower()
 
 if "provincia" in df_mmg.columns:
@@ -131,7 +243,7 @@ def count_visits(row):
 
 def annotate_name(row):
     name = row["nome medico"]
-    visits = row["Visite ciclo"]
+    visits = row.get("Visite ciclo", None)  # mantenuto, ma safe
     if any(row[c] == "v" for c in visto_cols):
         name = f"{name} (VIP)"
     return name
@@ -146,6 +258,11 @@ ciclo_opts = [
 ]
 today = datetime.datetime.now(timezone)
 default_cycle_idx = 1 + (today.month - 1) // 3
+
+# sanity: se ripristinato valore non valido, rimuovi
+if "ciclo_scelto" in st.session_state and st.session_state["ciclo_scelto"] not in ciclo_opts:
+    st.session_state.pop("ciclo_scelto", None)
+
 ciclo_scelto = st.selectbox(
     f"💠 SELEZIONA CICLO ({today.strftime('%B').capitalize()} {today.year})",
     ciclo_opts,
@@ -167,9 +284,15 @@ visto_cols = (
 
 # ---------- FILTRO MESE ULTIMA VISITA -------------------------------------------
 lista_mesi_cap = [m.capitalize() for m in mesi]
+
+# sanity: valore ripristinato valido?
+valid_filtro_ult = ["Nessuno"] + lista_mesi_cap
+if "filtro_ultima_visita" in st.session_state and st.session_state["filtro_ultima_visita"] not in valid_filtro_ult:
+    st.session_state.pop("filtro_ultima_visita", None)
+
 filtro_ultima = st.selectbox(
     "Seleziona mese ultima visita",
-    ["Nessuno"] + lista_mesi_cap,
+    valid_filtro_ult,
     index=0,
     key="filtro_ultima_visita",
 )
@@ -187,29 +310,43 @@ if filtro_ultima != "Nessuno":
 # ---------- FILTRI PRINCIPALI --------------------------------------------------
 default_spec = ["MMG"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
+spec_options = default_spec + spec_extra
+
+# sanitize filtro_spec ripristinato
+if "filtro_spec" in st.session_state:
+    if not isinstance(st.session_state["filtro_spec"], list):
+        st.session_state["filtro_spec"] = [st.session_state["filtro_spec"]]
+    st.session_state["filtro_spec"] = [x for x in st.session_state["filtro_spec"] if x in spec_options]
+    if not st.session_state["filtro_spec"]:
+        st.session_state["filtro_spec"] = default_spec
 
 filtro_spec = st.multiselect(
     "🩺 Filtra per tipo di specialista (spec)",
-    default_spec + spec_extra,
+    spec_options,
     default=st.session_state.get("filtro_spec", default_spec),
     key="filtro_spec",
 )
 df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]
 
+target_opts = ["In target","Non in target","Tutti"]
+if "filtro_target" in st.session_state and st.session_state["filtro_target"] not in target_opts:
+    st.session_state.pop("filtro_target", None)
+
 filtro_target = st.selectbox(
     "🎯 Scegli il tipo di medici",
-    ["In target","Non in target","Tutti"],
-    index=["In target","Non in target","Tutti"].index(
-        st.session_state.get("filtro_target","In target")
-    ),
+    target_opts,
+    index=target_opts.index(st.session_state.get("filtro_target","In target")),
     key="filtro_target",
 )
+
+visto_opts = ["Tutti","Visto","Non Visto","Visita VIP"]
+if "filtro_visto" in st.session_state and st.session_state["filtro_visto"] not in visto_opts:
+    st.session_state.pop("filtro_visto", None)
+
 filtro_visto = st.selectbox(
     "👀 Filtra per medici 'VISTO'",
-    ["Tutti","Visto","Non Visto","Visita VIP"],
-    index=["Tutti","Visto","Non Visto","Visita VIP"].index(
-        st.session_state.get("filtro_visto","Non Visto")
-    ),
+    visto_opts,
+    index=visto_opts.index(st.session_state.get("filtro_visto","Non Visto")),
     key="filtro_visto",
 )
 
@@ -236,6 +373,11 @@ oggi = datetime.datetime.now(timezone)
 giorni_settimana = ["lunedì","martedì","mercoledì","giovedì","venerdì"]
 giorni_opz = ["sempre"] + giorni_settimana
 giorno_default = giorni_settimana[oggi.weekday()] if oggi.weekday()<5 else "sempre"
+
+# sanity giorno ripristinato
+if "giorno_scelto" in st.session_state and st.session_state["giorno_scelto"] not in giorni_opz:
+    st.session_state.pop("giorno_scelto", None)
+
 giorno_scelto = st.selectbox(
     "📅 Scegli un giorno della settimana",
     giorni_opz,
@@ -244,6 +386,11 @@ giorno_scelto = st.selectbox(
 )
 
 fascia_opts = ["Mattina","Pomeriggio","Mattina e Pomeriggio","Personalizzato"]
+
+# sanity fascia ripristinata
+if "fascia_oraria" in st.session_state and st.session_state["fascia_oraria"] not in fascia_opts:
+    st.session_state.pop("fascia_oraria", None)
+
 fascia_oraria = st.radio(
     "🌞 Scegli la fascia oraria",
     fascia_opts,
@@ -322,20 +469,33 @@ colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
 
 # ---------- FILTRO MICROAREA & PROVINCIA ---------------------------------------
 microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
+
+# sanitize microarea default ripristinato
+default_micro = st.session_state.get("microarea_scelta", [])
+if not isinstance(default_micro, list):
+    default_micro = [default_micro]
+default_micro = [x for x in default_micro if x in microarea_lista]
+
 micro_sel = st.multiselect(
     "Seleziona Microaree",
     options=microarea_lista,
-    default=st.session_state.get("microarea_scelta", []),
+    default=default_micro,
     key="microarea_scelta",
 )
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
 prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
+
+# sanitize provincia scelta
+prov_default = st.session_state.get("provincia_scelta","Ovunque")
+if prov_default not in prov_lista:
+    prov_default = "Ovunque"
+
 prov_sel = st.selectbox(
     "📍 Scegli la Provincia",
     prov_lista,
-    index=prov_lista.index(st.session_state.get("provincia_scelta","Ovunque")),
+    index=prov_lista.index(prov_default),
     key="provincia_scelta",
 )
 if prov_sel.lower() != "ovunque":
@@ -343,9 +503,14 @@ if prov_sel.lower() != "ovunque":
 
 # ---------- FILTRO "MOSTRA SOLO MEDICI VISTI PRIMA DI (INCLUSO)" ---------------
 mesi_cap = [m.capitalize() for m in mesi]
+valid_mese_limite = ["Nessuno"] + mesi_cap
+
+if "mese_limite_visita" in st.session_state and st.session_state["mese_limite_visita"] not in valid_mese_limite:
+    st.session_state.pop("mese_limite_visita", None)
+
 mese_limite = st.selectbox(
     "🕰️ Mostra solo medici visti prima di (incluso)",
-    ["Nessuno"] + mesi_cap,
+    valid_mese_limite,
     index=0,
     key="mese_limite_visita",
 )
@@ -399,6 +564,24 @@ if df_filtrato.empty:
 # ---------- VISITE CICLO & VIP --------------------------------------------------
 df_filtrato["Visite ciclo"] = df_filtrato.apply(count_visits, axis=1)
 df_filtrato["nome medico"]  = df_filtrato.apply(annotate_name, axis=1)
+
+# ---------- PERSISTI STATO (DOPO CHE I WIDGET HANNO VALORE) ----------------------
+PERSIST_KEYS = [
+    "filtro_spec",
+    "filtro_target",
+    "filtro_visto",
+    "giorno_scelto",
+    "fascia_oraria",
+    "provincia_scelta",
+    "microarea_scelta",
+    "search_query",
+    "custom_start",
+    "custom_end",
+    "ciclo_scelto",
+    "filtro_ultima_visita",
+    "mese_limite_visita",
+]
+save_state_to_url(PERSIST_KEYS)
 
 # ---------- VISUALIZZAZIONE & CSV ----------------------------------------------
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].str.lower().nunique()} 🧮")

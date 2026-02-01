@@ -3,22 +3,20 @@ import pandas as pd
 from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
-import pytz  # per gestire il fuso orario
-
+import pytz
 import io
 import json
 import urllib.parse
+import hashlib
 from typing import Optional
 
 # Imposta il fuso orario desiderato
 timezone = pytz.timezone("Europe/Rome")
 
-# Configurazione della pagina
 st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout="centered")
 
 # ---------- CACHE COMPAT (streamlit vecchio/nuovo) ------------------------------
 def _cache_data_decorator():
-    """Usa st.cache_data se disponibile, altrimenti fallback a st.cache."""
     try:
         return st.cache_data(show_spinner=False)
     except Exception:
@@ -105,13 +103,12 @@ def save_state_to_url(keys):
     for k in keys:
         if k in st.session_state:
             payload[k] = _serialize_value(st.session_state[k])
-
     new_state = _encode_state(payload)
     old_state = _get_query_param("state")
     if new_state != old_state:
         _set_query_param("state", new_state)
 
-# Ripristina PRIMA di creare widget con key (fondamentale)
+# Ripristina PRIMA dei widget
 load_state_from_url()
 
 # ---------- CSS -----------------------------------------------------------------
@@ -128,53 +125,28 @@ div.stButton>button:hover{background:#0056b3;}
 .ag-header-cell-label{font-weight:bold;color:#343a40;}
 .ag-row{font-size:0.9rem;}
 
-/* --- CHIP MICROAREE: checkbox stile pill --- */
-div[data-testid="stCheckbox"] label{
-    border:1px solid #ced4da;
-    background:#f1f3f5;
-    padding:5px 8px;
-    border-radius:999px;
-    display:flex;
-    align-items:center;
-    gap:6px;
-    margin:2px 0;
-    cursor:pointer;
-    user-select:none;
-
-    /* compattezza */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-    font-size: 0.92rem;
-}
-div[data-testid="stCheckbox"] input{
-    transform: scale(1.05);
-}
-
-/* selezionato (Chrome/Safari moderni) */
-div[data-testid="stCheckbox"] label:has(input:checked){
-    background:#007bff;
-    border-color:#007bff;
-    color:white;
-}
-
-/* --- FORZA LE COLONNE MICROAREE A NON COLLASSARE SU MOBILE --- */
-/* Qualsiasi "blocco orizzontale" che contiene checkbox: lascia wrap e colonne strette */
-div[data-testid="stHorizontalBlock"]:has(div[data-testid="stCheckbox"]) {
-  flex-wrap: wrap !important;
-  gap: 0.25rem !important;
-}
-
-/* Colonne più strette: così su mobile diventano 2-3 per riga */
-div[data-testid="stHorizontalBlock"]:has(div[data-testid="stCheckbox"]) > div[data-testid="column"]{
-  min-width: 120px !important;  /* se vuoi ancora più fit: 110 */
-  flex: 1 1 120px !important;
-}
-
-/* Riduce margini interni */
+/* --------- MICROAREE: checkbox NORMALI ma DISPOSTI AFFIANCATI ---------
+   3 per riga su desktop, 2 per riga su mobile. Stile standard (come radio),
+   senza pill/bordi/box. */
 div[data-testid="stCheckbox"]{
+  display: inline-block !important;
+  width: 33.333% !important;        /* desktop: 3 per riga */
   margin: 0 !important;
+  padding: 0 !important;
+  vertical-align: top !important;
+}
+@media (max-width: 720px){
+  div[data-testid="stCheckbox"]{ width: 50% !important; }  /* mobile: 2 per riga */
+}
+@media (max-width: 380px){
+  div[data-testid="stCheckbox"]{ width: 100% !important; } /* extra small: 1 per riga */
+}
+/* evita che nomi lunghi creino righe alte */
+div[data-testid="stCheckbox"] label{
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 100% !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -294,7 +266,6 @@ def count_visits(row):
 
 def annotate_name(row):
     name = row["nome medico"]
-    _ = row.get("Visite ciclo", None)
     if any(row[c] == "v" for c in visto_cols):
         name = f"{name} (VIP)"
     return name
@@ -432,7 +403,6 @@ giorno_scelto = st.selectbox(
 )
 
 fascia_opts = ["Mattina","Pomeriggio","Mattina e Pomeriggio","Personalizzato"]
-
 if "fascia_oraria" in st.session_state and st.session_state["fascia_oraria"] not in fascia_opts:
     st.session_state.pop("fascia_oraria", None)
 
@@ -499,7 +469,6 @@ def filtra_giorno_fascia(df_base):
 
 df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_mmg)
 
-# ---- MOSTRA SOLO COLONNE PERTINENTI ALLA FASCIA ORARIA ATTUALE ----
 if fascia_oraria == "Personalizzato":
     ora_rif = custom_start.hour
     if ora_rif < 13:
@@ -514,51 +483,53 @@ colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio","microarea","provincia","ultima visita"
 ]
 
-# ---------- MICROAREE: CHIP COMPATTI AFFIANCATI (NO MENU A TENDINA) -------------
-microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-
+# ---------- MICROAREE (AFFIANCATE, ORDINATE PER NOME, STILE STANDARD) -----------
 st.write("### Microaree")
 
+# Ordinamento "per nome" robusto
+microarea_lista = df_mmg["microarea"].dropna().astype(str).str.strip().tolist()
+microarea_lista = sorted(list({m for m in microarea_lista if m and m.lower() != "nan"}), key=lambda s: s.casefold())
+
+# Pulsanti rapidi
 b1, b2, b3 = st.columns([1, 1, 2])
 with b1:
     if st.button("✅ Tutte", key="micro_all"):
         st.session_state["microarea_scelta"] = microarea_lista.copy()
-        for i, _m in enumerate(microarea_lista):
-            st.session_state[f"micro_chk_{i}"] = True
+        for m in microarea_lista:
+            mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
+            st.session_state[mk] = True
         st.rerun()
 
 with b2:
     if st.button("🚫 Nessuna", key="micro_none"):
         st.session_state["microarea_scelta"] = []
-        for i, _m in enumerate(microarea_lista):
-            st.session_state[f"micro_chk_{i}"] = False
+        for m in microarea_lista:
+            mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
+            st.session_state[mk] = False
         st.rerun()
 
 with b3:
     st.caption(f"Selezionate: {len(st.session_state.get('microarea_scelta', []))}")
 
-# IMPORTANTISSIMO: mettiamo MOLTE colonne + CSS le rende strette e wrap su mobile
-N_COLS_MICRO = 6  # <-- così su mobile diventano 2-3 per riga (non 1)
-cols_micro = st.columns(N_COLS_MICRO)
-
+# Checkbox normali (stile come radio), ma affiancati grazie al CSS sopra
 selected_set = set(st.session_state.get("microarea_scelta", []))
+micro_sel = []
 
-for i, m in enumerate(microarea_lista):
-    key = f"micro_chk_{i}"
-    if key not in st.session_state:
-        st.session_state[key] = (m in selected_set)
+for m in microarea_lista:
+    mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
+    if mk not in st.session_state:
+        st.session_state[mk] = (m in selected_set)
 
-    with cols_micro[i % N_COLS_MICRO]:
-        st.checkbox(m, key=key)
+    if st.checkbox(m, key=mk):
+        micro_sel.append(m)
 
-micro_sel = [microarea_lista[i] for i in range(len(microarea_lista)) if st.session_state.get(f"micro_chk_{i}", False)]
 st.session_state["microarea_scelta"] = micro_sel
 
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
 # ---------- PROVINCIA -----------------------------------------------------------
-prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
+prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if str(p).lower() != "nan")
 
 prov_default = st.session_state.get("provincia_scelta","Ovunque")
 if prov_default not in prov_lista:
@@ -570,7 +541,6 @@ prov_sel = st.selectbox(
     index=prov_lista.index(prov_default),
     key="provincia_scelta",
 )
-
 if prov_sel.lower() != "ovunque":
     df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()]
 
@@ -603,7 +573,6 @@ query = st.text_input(
     placeholder="Inserisci nome, città, microarea, ecc.",
     key="search_query",
 )
-
 if query:
     q = query.lower()
     df_filtrato = df_filtrato[

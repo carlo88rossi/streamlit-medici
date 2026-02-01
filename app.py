@@ -22,14 +22,12 @@ def _cache_data_decorator():
     try:
         return st.cache_data(show_spinner=False)
     except Exception:
-        # streamlit vecchio
         return st.cache(allow_output_mutation=False)
 
 cache_data = _cache_data_decorator()
 
 # ---------- PERSISTENZA STATO IN URL (ANTI-RESET MOBILE) ------------------------
 def _get_query_param(key: str) -> Optional[str]:
-    """Compatibilità tra st.query_params e experimental_get_query_params."""
     try:
         v = st.query_params.get(key, None)  # Streamlit recente
         if isinstance(v, list):
@@ -43,7 +41,6 @@ def _get_query_param(key: str) -> Optional[str]:
         return v
 
 def _set_query_param(key: str, value: Optional[str]) -> None:
-    """Set/clear query param con fallback."""
     try:
         if value is None:
             if key in st.query_params:
@@ -51,7 +48,6 @@ def _set_query_param(key: str, value: Optional[str]) -> None:
         else:
             st.query_params[key] = value
     except Exception:
-        # experimental API usa dict intero: attenzione a non perdere altri parametri
         qp = st.experimental_get_query_params()
         if value is None:
             qp.pop(key, None)
@@ -60,7 +56,6 @@ def _set_query_param(key: str, value: Optional[str]) -> None:
         st.experimental_set_query_params(**qp)
 
 def _serialize_value(v):
-    """Serializzazione robusta per JSON/URL (gestisce time)."""
     if isinstance(v, datetime.time):
         return v.strftime("%H:%M:%S")
     if isinstance(v, (datetime.datetime, datetime.date)):
@@ -133,27 +128,53 @@ div.stButton>button:hover{background:#0056b3;}
 .ag-header-cell-label{font-weight:bold;color:#343a40;}
 .ag-row{font-size:0.9rem;}
 
-/* --- CHIP MICROAREE (checkbox stile pill) --- */
+/* --- CHIP MICROAREE: checkbox stile pill --- */
 div[data-testid="stCheckbox"] label{
     border:1px solid #ced4da;
     background:#f1f3f5;
-    padding:6px 10px;
+    padding:5px 8px;
     border-radius:999px;
     display:flex;
     align-items:center;
-    gap:8px;
-    margin:4px 0;
+    gap:6px;
+    margin:2px 0;
     cursor:pointer;
     user-select:none;
+
+    /* compattezza */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    font-size: 0.92rem;
 }
 div[data-testid="stCheckbox"] input{
     transform: scale(1.05);
 }
-/* quando selezionato (Chrome moderno supporta :has) */
+
+/* selezionato (Chrome/Safari moderni) */
 div[data-testid="stCheckbox"] label:has(input:checked){
     background:#007bff;
     border-color:#007bff;
     color:white;
+}
+
+/* --- FORZA LE COLONNE MICROAREE A NON COLLASSARE SU MOBILE --- */
+/* Qualsiasi "blocco orizzontale" che contiene checkbox: lascia wrap e colonne strette */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stCheckbox"]) {
+  flex-wrap: wrap !important;
+  gap: 0.25rem !important;
+}
+
+/* Colonne più strette: così su mobile diventano 2-3 per riga */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stCheckbox"]) > div[data-testid="column"]{
+  min-width: 120px !important;  /* se vuoi ancora più fit: 110 */
+  flex: 1 1 120px !important;
+}
+
+/* Riduce margini interni */
+div[data-testid="stCheckbox"]{
+  margin: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -167,7 +188,7 @@ if not file:
 
 # ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
 def azzera_filtri():
-    # rimuovi anche i checkbox dinamici delle microaree
+    # rimuovi checkbox dinamici microaree
     for k in list(st.session_state.keys()):
         if str(k).startswith("micro_chk_"):
             st.session_state.pop(k, None)
@@ -273,7 +294,7 @@ def count_visits(row):
 
 def annotate_name(row):
     name = row["nome medico"]
-    _ = row.get("Visite ciclo", None)  # non usato, ma safe
+    _ = row.get("Visite ciclo", None)
     if any(row[c] == "v" for c in visto_cols):
         name = f"{name} (VIP)"
     return name
@@ -493,7 +514,7 @@ colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio","microarea","provincia","ultima visita"
 ]
 
-# ---------- FILTRO MICROAREA (CHIP/BOTTONI) & PROVINCIA -------------------------
+# ---------- MICROAREE: CHIP COMPATTI AFFIANCATI (NO MENU A TENDINA) -------------
 microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
 
 st.write("### Microaree")
@@ -516,8 +537,8 @@ with b2:
 with b3:
     st.caption(f"Selezionate: {len(st.session_state.get('microarea_scelta', []))}")
 
-# griglia: 2 colonne (comoda su cellulare)
-N_COLS_MICRO = 2
+# IMPORTANTISSIMO: mettiamo MOLTE colonne + CSS le rende strette e wrap su mobile
+N_COLS_MICRO = 6  # <-- così su mobile diventano 2-3 per riga (non 1)
 cols_micro = st.columns(N_COLS_MICRO)
 
 selected_set = set(st.session_state.get("microarea_scelta", []))
@@ -536,6 +557,7 @@ st.session_state["microarea_scelta"] = micro_sel
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
+# ---------- PROVINCIA -----------------------------------------------------------
 prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
 
 prov_default = st.session_state.get("provincia_scelta","Ovunque")
@@ -590,7 +612,7 @@ if query:
                   .apply(lambda r: q in " ".join(r).lower(), axis=1)
     ]
 
-# ---------- PERSISTI STATO (SUBITO, PRIMA DI stop/apply PESANTI) ----------------
+# ---------- PERSISTI STATO (SUBITO) ---------------------------------------------
 PERSIST_KEYS = [
     "filtro_spec",
     "filtro_target",

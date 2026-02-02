@@ -3,11 +3,11 @@ import pandas as pd
 from st_aggrid import AgGrid, GridOptionsBuilder
 import datetime
 import re
-import pytz  # per gestire il fuso orario
-
+import pytz
 import io
 import json
 import urllib.parse
+import hashlib
 from typing import Optional
 
 # Imposta il fuso orario desiderato
@@ -18,18 +18,15 @@ st.set_page_config(page_title="Filtro Medici - Ricevimento Settimanale", layout=
 
 # ---------- CACHE COMPAT (streamlit vecchio/nuovo) ------------------------------
 def _cache_data_decorator():
-    """Usa st.cache_data se disponibile, altrimenti fallback a st.cache."""
     try:
         return st.cache_data(show_spinner=False)
     except Exception:
-        # streamlit vecchio
         return st.cache(allow_output_mutation=False)
 
 cache_data = _cache_data_decorator()
 
 # ---------- PERSISTENZA STATO IN URL (ANTI-RESET MOBILE) ------------------------
 def _get_query_param(key: str) -> Optional[str]:
-    """Compatibilità tra st.query_params e experimental_get_query_params."""
     try:
         v = st.query_params.get(key, None)  # Streamlit recente
         if isinstance(v, list):
@@ -43,7 +40,6 @@ def _get_query_param(key: str) -> Optional[str]:
         return v
 
 def _set_query_param(key: str, value: Optional[str]) -> None:
-    """Set/clear query param con fallback."""
     try:
         if value is None:
             if key in st.query_params:
@@ -51,7 +47,6 @@ def _set_query_param(key: str, value: Optional[str]) -> None:
         else:
             st.query_params[key] = value
     except Exception:
-        # experimental API usa dict intero: attenzione a non perdere altri parametri
         qp = st.experimental_get_query_params()
         if value is None:
             qp.pop(key, None)
@@ -60,7 +55,6 @@ def _set_query_param(key: str, value: Optional[str]) -> None:
         st.experimental_set_query_params(**qp)
 
 def _serialize_value(v):
-    """Serializzazione robusta per JSON/URL (gestisce time)."""
     if isinstance(v, datetime.time):
         return v.strftime("%H:%M:%S")
     if isinstance(v, (datetime.datetime, datetime.date)):
@@ -116,7 +110,6 @@ def save_state_to_url(keys):
     if new_state != old_state:
         _set_query_param("state", new_state)
 
-# Ripristina PRIMA di creare widget con key (fondamentale)
 load_state_from_url()
 
 # ---------- CSS -----------------------------------------------------------------
@@ -133,27 +126,17 @@ div.stButton>button:hover{background:#0056b3;}
 .ag-header-cell-label{font-weight:bold;color:#343a40;}
 .ag-row{font-size:0.9rem;}
 
-/* --- CHIP MICROAREE (checkbox stile pill) --- */
-div[data-testid="stCheckbox"] label{
-    border:1px solid #ced4da;
-    background:#f1f3f5;
-    padding:6px 10px;
-    border-radius:999px;
-    display:flex;
-    align-items:center;
-    gap:8px;
-    margin:4px 0;
-    cursor:pointer;
-    user-select:none;
+/* MICROAREE: compatte (una sotto l'altra), senza tagli e senza stile "pill" */
+#microarea-box div[data-testid="stCheckbox"]{ margin:0 !important; padding:0 !important; }
+#microarea-box div[data-testid="stCheckbox"] label{
+  margin:0 !important;
+  padding:2px 0 !important;
+  line-height:1.1 !important;
+  font-size:0.95rem !important;
+  white-space: normal !important;
 }
-div[data-testid="stCheckbox"] input{
-    transform: scale(1.05);
-}
-/* quando selezionato (Chrome moderno supporta :has) */
-div[data-testid="stCheckbox"] label:has(input:checked){
-    background:#007bff;
-    border-color:#007bff;
-    color:white;
+#microarea-box div[data-testid="stCheckbox"] input{
+  transform: scale(0.95);
 }
 </style>
 """, unsafe_allow_html=True)
@@ -167,7 +150,6 @@ if not file:
 
 # ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
 def azzera_filtri():
-    # rimuovi anche i checkbox dinamici delle microaree
     for k in list(st.session_state.keys()):
         if str(k).startswith("micro_chk_"):
             st.session_state.pop(k, None)
@@ -260,25 +242,7 @@ for m in mesi:
 
 df_mmg["ultima visita"] = df_mmg.apply(get_ultima_visita, axis=1)
 
-# ---------- FUNZIONI VISITA ----------------------------------------------------
-def is_visited(row):
-    count = sum(1 for c in visto_cols if row[c] in ["x","v"])
-    return count >= 1
-
-def is_vip(row):
-    return any(row[c] == "v" for c in visto_cols)
-
-def count_visits(row):
-    return sum(1 for c in visto_cols if row[c] in ["x","v"])
-
-def annotate_name(row):
-    name = row["nome medico"]
-    _ = row.get("Visite ciclo", None)  # non usato, ma safe
-    if any(row[c] == "v" for c in visto_cols):
-        name = f"{name} (VIP)"
-    return name
-
-# ---------- SELEZIONE CICLO + KPI -----------------------------------------------
+# ---------- CICLO ---------------------------------------------------------------
 ciclo_opts = [
     "Tutti",
     "Ciclo 1 (Gen-Feb-Mar)",
@@ -311,16 +275,28 @@ visto_cols = (
     else month_cycles[ciclo_scelto]
 )
 
+# ---------- FUNZIONI VISITA ----------------------------------------------------
+def is_visited(row):
+    count = sum(1 for c in visto_cols if row[c] in ["x","v"])
+    return count >= 1
+
+def is_vip(row):
+    return any(row[c] == "v" for c in visto_cols)
+
+def count_visits(row):
+    return sum(1 for c in visto_cols if row[c] in ["x","v"])
+
+def annotate_name(row):
+    name = row["nome medico"]
+    if any(row[c] == "v" for c in visto_cols):
+        name = f"{name} (VIP)"
+    return name
+
 # ---------- FILTRO MESE ULTIMA VISITA -------------------------------------------
 lista_mesi_cap = [m.capitalize() for m in mesi]
-valid_filtro_ult = ["Nessuno"] + lista_mesi_cap
-
-if "filtro_ultima_visita" in st.session_state and st.session_state["filtro_ultima_visita"] not in valid_filtro_ult:
-    st.session_state.pop("filtro_ultima_visita", None)
-
 filtro_ultima = st.selectbox(
     "Seleziona mese ultima visita",
-    valid_filtro_ult,
+    ["Nessuno"] + lista_mesi_cap,
     index=0,
     key="filtro_ultima_visita",
 )
@@ -337,42 +313,29 @@ if filtro_ultima != "Nessuno":
 # ---------- FILTRI PRINCIPALI --------------------------------------------------
 default_spec = ["MMG"]
 spec_extra = ["ORT", "FIS", "REU", "DOL", "OTO", "DER", "INT", "END", "DIA"]
-spec_options = default_spec + spec_extra
-
-if "filtro_spec" in st.session_state:
-    if not isinstance(st.session_state["filtro_spec"], list):
-        st.session_state["filtro_spec"] = [st.session_state["filtro_spec"]]
-    st.session_state["filtro_spec"] = [x for x in st.session_state["filtro_spec"] if x in spec_options]
-    if not st.session_state["filtro_spec"]:
-        st.session_state["filtro_spec"] = default_spec
 
 filtro_spec = st.multiselect(
     "🩺 Filtra per tipo di specialista (spec)",
-    spec_options,
+    default_spec + spec_extra,
     default=st.session_state.get("filtro_spec", default_spec),
     key="filtro_spec",
 )
 df_mmg = df_mmg[df_mmg["spec"].isin(filtro_spec)]
 
-target_opts = ["In target","Non in target","Tutti"]
-if "filtro_target" in st.session_state and st.session_state["filtro_target"] not in target_opts:
-    st.session_state.pop("filtro_target", None)
-
 filtro_target = st.selectbox(
     "🎯 Scegli il tipo di medici",
-    target_opts,
-    index=target_opts.index(st.session_state.get("filtro_target","In target")),
+    ["In target","Non in target","Tutti"],
+    index=["In target","Non in target","Tutti"].index(
+        st.session_state.get("filtro_target","In target")
+    ),
     key="filtro_target",
 )
-
-visto_opts = ["Tutti","Visto","Non Visto","Visita VIP"]
-if "filtro_visto" in st.session_state and st.session_state["filtro_visto"] not in visto_opts:
-    st.session_state.pop("filtro_visto", None)
-
 filtro_visto = st.selectbox(
     "👀 Filtra per medici 'VISTO'",
-    visto_opts,
-    index=visto_opts.index(st.session_state.get("filtro_visto","Non Visto")),
+    ["Tutti","Visto","Non Visto","Visita VIP"],
+    index=["Tutti","Visto","Non Visto","Visita VIP"].index(
+        st.session_state.get("filtro_visto","Non Visto")
+    ),
     key="filtro_visto",
 )
 
@@ -400,9 +363,6 @@ giorni_settimana = ["lunedì","martedì","mercoledì","giovedì","venerdì"]
 giorni_opz = ["sempre"] + giorni_settimana
 giorno_default = giorni_settimana[oggi.weekday()] if oggi.weekday()<5 else "sempre"
 
-if "giorno_scelto" in st.session_state and st.session_state["giorno_scelto"] not in giorni_opz:
-    st.session_state.pop("giorno_scelto", None)
-
 giorno_scelto = st.selectbox(
     "📅 Scegli un giorno della settimana",
     giorni_opz,
@@ -411,10 +371,6 @@ giorno_scelto = st.selectbox(
 )
 
 fascia_opts = ["Mattina","Pomeriggio","Mattina e Pomeriggio","Personalizzato"]
-
-if "fascia_oraria" in st.session_state and st.session_state["fascia_oraria"] not in fascia_opts:
-    st.session_state.pop("fascia_oraria", None)
-
 fascia_oraria = st.radio(
     "🌞 Scegli la fascia oraria",
     fascia_opts,
@@ -427,10 +383,8 @@ if fascia_oraria == "Personalizzato":
         now = datetime.datetime.now(timezone)
         st.session_state["custom_start"] = now.time()
         st.session_state["custom_end"]   = (now + datetime.timedelta(minutes=15)).time()
-
     default_min = datetime.datetime.combine(datetime.date.today(), datetime.time(7,0))
     default_max = datetime.datetime.combine(datetime.date.today(), datetime.time(19,0))
-
     t_start, t_end = st.slider(
         "Seleziona l'intervallo orario",
         min_value=default_min,
@@ -461,24 +415,20 @@ def filtra_giorno_fascia(df_base):
                 col = f"{g} {suf}"
                 if col in df_base.columns:
                     cols.append(col)
-
     cols = [c.lower() for c in cols if c.lower() in df_base.columns]
     if not cols:
         st.error("Le colonne per il filtro giorno/fascia non esistono nel file.")
         st.stop()
-
     if fascia_oraria == "Personalizzato":
         df_f = df_base[df_base[cols].apply(
             lambda r: any(interval_covers(r[c], custom_start, custom_end) for c in cols),
             axis=1
         )]
         return df_f, cols
-
     return df_base[df_base[cols].notna().any(axis=1)], cols
 
 df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_mmg)
 
-# ---- MOSTRA SOLO COLONNE PERTINENTI ALLA FASCIA ORARIA ATTUALE ----
 if fascia_oraria == "Personalizzato":
     ora_rif = custom_start.hour
     if ora_rif < 13:
@@ -493,75 +443,77 @@ colonne_da_mostrare = ["nome medico","città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio","microarea","provincia","ultima visita"
 ]
 
-# ---------- FILTRO MICROAREA (CHIP/BOTTONI) & PROVINCIA -------------------------
-microarea_lista = sorted(df_mmg["microarea"].dropna().unique().tolist())
-
+# ---------- MICROAREE (verticali, compatte, ordine richiesto) -------------------
 st.write("### Microaree")
+
+microarea_raw = df_mmg["microarea"].dropna().astype(str).str.strip().tolist()
+microarea_lista = list({m for m in microarea_raw if m and m.lower() != "nan"})
+
+priority = {"FM": 0, "MC": 1, "SBT": 2, "AP": 3, "MTPR": 4, "TER": 5}
+
+def micro_sort_key(s: str):
+    up = s.strip().upper()
+    code = re.split(r"[^A-Z]", up)[0]  # primo blocco di lettere
+    grp = priority.get(code, 999)
+    return (grp, up.casefold())
+
+microarea_lista = sorted(microarea_lista, key=micro_sort_key)
 
 b1, b2, b3 = st.columns([1, 1, 2])
 with b1:
     if st.button("✅ Tutte", key="micro_all"):
         st.session_state["microarea_scelta"] = microarea_lista.copy()
-        for i, _m in enumerate(microarea_lista):
-            st.session_state[f"micro_chk_{i}"] = True
+        for m in microarea_lista:
+            mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
+            st.session_state[mk] = True
         st.rerun()
 
 with b2:
     if st.button("🚫 Nessuna", key="micro_none"):
         st.session_state["microarea_scelta"] = []
-        for i, _m in enumerate(microarea_lista):
-            st.session_state[f"micro_chk_{i}"] = False
+        for m in microarea_lista:
+            mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
+            st.session_state[mk] = False
         st.rerun()
 
 with b3:
     st.caption(f"Selezionate: {len(st.session_state.get('microarea_scelta', []))}")
 
-# griglia: 2 colonne (comoda su cellulare)
-N_COLS_MICRO = 2
-cols_micro = st.columns(N_COLS_MICRO)
+st.markdown('<div id="microarea-box">', unsafe_allow_html=True)
 
 selected_set = set(st.session_state.get("microarea_scelta", []))
+micro_sel = []
 
-for i, m in enumerate(microarea_lista):
-    key = f"micro_chk_{i}"
-    if key not in st.session_state:
-        st.session_state[key] = (m in selected_set)
+for m in microarea_lista:
+    mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
+    if mk not in st.session_state:
+        st.session_state[mk] = (m in selected_set)
 
-    with cols_micro[i % N_COLS_MICRO]:
-        st.checkbox(m, key=key)
+    if st.checkbox(m, key=mk):
+        micro_sel.append(m)
 
-micro_sel = [microarea_lista[i] for i in range(len(microarea_lista)) if st.session_state.get(f"micro_chk_{i}", False)]
+st.markdown('</div>', unsafe_allow_html=True)
+
 st.session_state["microarea_scelta"] = micro_sel
-
 if micro_sel:
     df_filtrato = df_filtrato[df_filtrato["microarea"].isin(micro_sel)]
 
-prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if p.lower() != "nan")
-
-prov_default = st.session_state.get("provincia_scelta","Ovunque")
-if prov_default not in prov_lista:
-    prov_default = "Ovunque"
-
+# ---------- PROVINCIA -----------------------------------------------------------
+prov_lista = ["Ovunque"] + sorted(p for p in df_mmg["provincia"].dropna().unique() if str(p).lower() != "nan")
 prov_sel = st.selectbox(
     "📍 Scegli la Provincia",
     prov_lista,
-    index=prov_lista.index(prov_default),
+    index=prov_lista.index(st.session_state.get("provincia_scelta","Ovunque")) if st.session_state.get("provincia_scelta","Ovunque") in prov_lista else 0,
     key="provincia_scelta",
 )
-
 if prov_sel.lower() != "ovunque":
     df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()]
 
-# ---------- FILTRO "MOSTRA SOLO MEDICI VISTI PRIMA DI (INCLUSO)" ---------------
+# ---------- FILTRO "MOSTRA SOLO MEDICI VISTI PRIMA DI (INCLUSO)" ----------------
 mesi_cap = [m.capitalize() for m in mesi]
-valid_mese_limite = ["Nessuno"] + mesi_cap
-
-if "mese_limite_visita" in st.session_state and st.session_state["mese_limite_visita"] not in valid_mese_limite:
-    st.session_state.pop("mese_limite_visita", None)
-
 mese_limite = st.selectbox(
     "🕰️ Mostra solo medici visti prima di (incluso)",
-    valid_mese_limite,
+    ["Nessuno"] + mesi_cap,
     index=0,
     key="mese_limite_visita",
 )
@@ -581,7 +533,6 @@ query = st.text_input(
     placeholder="Inserisci nome, città, microarea, ecc.",
     key="search_query",
 )
-
 if query:
     q = query.lower()
     df_filtrato = df_filtrato[
@@ -590,7 +541,7 @@ if query:
                   .apply(lambda r: q in " ".join(r).lower(), axis=1)
     ]
 
-# ---------- PERSISTI STATO (SUBITO, PRIMA DI stop/apply PESANTI) ----------------
+# ---------- PERSISTI STATO (SUBITO) ---------------------------------------------
 PERSIST_KEYS = [
     "filtro_spec",
     "filtro_target",

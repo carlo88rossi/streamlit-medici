@@ -33,33 +33,30 @@ def _cache_data_decorator():
 cache_data = _cache_data_decorator()
 
 # ---------- PERSISTENZA STATO IN URL (ANTI-RESET MOBILE) ------------------------
+# NOTE: SOLO st.query_params (no experimental), per evitare crash Streamlit moderni.
+
 def _get_query_param(key: str) -> Optional[str]:
-    try:
-        v = st.query_params.get(key, None)  # Streamlit recente
-        if isinstance(v, list):
-            return v[0] if v else None
-        return v
-    except Exception:
-        qp = st.experimental_get_query_params()
-        v = qp.get(key, None)
-        if isinstance(v, list):
-            return v[0] if v else None
-        return v
+    v = st.query_params.get(key, None)
+    if v is None:
+        return None
+    if isinstance(v, (list, tuple)):
+        return v[0] if v else None
+    return v
 
 def _set_query_param(key: str, value: Optional[str]) -> None:
-    try:
-        if value is None:
-            if key in st.query_params:
-                del st.query_params[key]
-        else:
-            st.query_params[key] = value
-    except Exception:
-        qp = st.experimental_get_query_params()
-        if value is None:
-            qp.pop(key, None)
-        else:
-            qp[key] = value
-        st.experimental_set_query_params(**qp)
+    if value is None:
+        if key in st.query_params:
+            del st.query_params[key]
+    else:
+        st.query_params[key] = value
+
+def clear_all_query_params():
+    # rimuove QUALSIASI parametro in URL (state incluso)
+    for k in list(st.query_params.keys()):
+        del st.query_params[k]
+
+def clear_state_in_url():
+    _set_query_param("state", None)
 
 def _serialize_value(v):
     if isinstance(v, datetime.time):
@@ -86,9 +83,6 @@ def _encode_state(payload: dict) -> str:
 def _decode_state(s: str) -> dict:
     raw = urllib.parse.unquote(s)
     return json.loads(raw)
-
-def clear_state_in_url():
-    _set_query_param("state", None)
 
 def load_state_from_url():
     s = _get_query_param("state")
@@ -214,40 +208,24 @@ if not file:
 # ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
 def azzera_filtri():
     """
-    RESET = identico al primo avvio dell'app:
-    - cancella TUTTI i filtri, micro checkbox, orari custom, ricerca
-    - cancella stato in URL
-    - NON imposta nulla a mano: i default vengono ricalcolati come al boot (giorno/ora correnti, ecc.)
+    RESET = boot pulito mantenendo il file caricato:
+    - cancella TUTTI i filtri, micro checkbox, orari custom, ricerca, selezioni
+    - cancella TUTTI i query params in URL (state incluso)
+    - NON imposta nulla a mano: i default vengono ricalcolati come al boot
+    - IMPORTANT: niente st.rerun() qui (Streamlit fa rerun dopo il click)
     """
-    # 1) elimina tutti i checkbox microaree
+    whitelist = {"file_uploader", "_skip_url_save_once"}
+
+    # cancella tutto lo session_state tranne whitelist
     for k in list(st.session_state.keys()):
-        if str(k).startswith("micro_chk_"):
+        if k not in whitelist:
             st.session_state.pop(k, None)
 
-    # 2) elimina tutte le chiavi filtro/UI
-    keys_to_reset = [
-        "filtro_spec",
-        "filtro_target",
-        "filtro_visto",
-        "giorno_scelto",
-        "fascia_oraria",
-        "custom_start",
-        "custom_end",
-        "provincia_scelta",
-        "microarea_scelta",
-        "search_query",
-        "ciclo_scelto",
-        "filtro_ultima_visita",
-        "mese_limite_visita",
-    ]
-    for k in keys_to_reset:
-        st.session_state.pop(k, None)
+    # flag: in questo rerun non riscrivere lo state in URL (così rimane pulito)
+    st.session_state["_skip_url_save_once"] = True
 
-    # 3) pulisci lo stato salvato in URL
-    clear_state_in_url()
-
-    # 4) ricarica: riparte come avvio app
-    st.rerun()
+    # pulisci completamente l'URL
+    clear_all_query_params()
 
 def toggle_specialisti():
     current = st.session_state.get("filtro_spec", DEFAULT_SPEC)
@@ -255,11 +233,11 @@ def toggle_specialisti():
         st.session_state["filtro_spec"] = SPEC_EXTRA
     else:
         st.session_state["filtro_spec"] = DEFAULT_SPEC
-    st.rerun()
+    # niente rerun: dopo click Streamlit rilancia già lo script
 
 def seleziona_mmg():
     st.session_state["filtro_spec"] = DEFAULT_SPEC
-    st.rerun()
+    # niente rerun: dopo click Streamlit rilancia già lo script
 
 col1, col2, col3 = st.columns([1,1,2])
 with col1:
@@ -651,7 +629,12 @@ PERSIST_KEYS = [
     "filtro_ultima_visita",
     "mese_limite_visita",
 ]
-save_state_to_url(PERSIST_KEYS)
+
+# Se arrivi da RESET: non riscrivere lo state in URL (e lascialo pulito).
+if st.session_state.pop("_skip_url_save_once", False):
+    clear_all_query_params()
+else:
+    save_state_to_url(PERSIST_KEYS)
 
 # ---------- ORDINAMENTO ---------------------------------------------------------
 def min_start(row):

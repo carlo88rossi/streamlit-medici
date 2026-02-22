@@ -208,24 +208,27 @@ if not file:
 # ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
 def azzera_filtri():
     """
-    RESET = boot pulito mantenendo il file caricato:
-    - cancella TUTTI i filtri, micro checkbox, orari custom, ricerca, selezioni
-    - cancella TUTTI i query params in URL (state incluso)
-    - NON imposta nulla a mano: i default vengono ricalcolati come al boot
-    - IMPORTANT: niente st.rerun() qui (Streamlit fa rerun dopo il click)
+    Reset dei filtri mantenendo il file caricato nel file_uploader.
+    - rimuove tutti i query params
+    - cancella tutti i keys di st.session_state tranne quelli dei widget che NON vogliamo toccare
+    - NON assegna mai st.session_state['file_uploader'] (Streamlit non lo consente)
+    - NON chiama st.rerun() (Streamlit rilancia lo script automaticamente dopo il callback)
     """
-    whitelist = {"file_uploader", "_skip_url_save_once"}
+    # pulisci URL (rimuove anche 'state')
+    clear_all_query_params()
 
-    # cancella tutto lo session_state tranne whitelist
+    # lista di keys da preservare (non toccare)
+    keep = {"file_uploader", "_skip_url_save_once"}
+
+    # rimuovi tutti gli altri valori dalla session_state
     for k in list(st.session_state.keys()):
-        if k not in whitelist:
+        if k not in keep:
             st.session_state.pop(k, None)
 
-    # flag: in questo rerun non riscrivere lo state in URL (così rimane pulito)
+    # segnala al flusso principale di non riscrivere lo state nell'URL in questo rerun
     st.session_state["_skip_url_save_once"] = True
 
-    # pulisci completamente l'URL
-    clear_all_query_params()
+    # Fine della funzione — il rerun avverrà subito dopo la callback del pulsante
 
 def toggle_specialisti():
     current = st.session_state.get("filtro_spec", DEFAULT_SPEC)

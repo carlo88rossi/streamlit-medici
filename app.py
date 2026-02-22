@@ -222,27 +222,81 @@ if file_bytes is None:
 # ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
 def azzera_filtri():
     """
-    Reset dei filtri mantenendo il file caricato nel file_uploader.
-    - rimuove tutti i query params
-    - cancella tutti i keys di st.session_state tranne quelli dei widget che NON vogliamo toccare
-    - NON assegna mai st.session_state['file_uploader'] (Streamlit non lo consente)
-    - NON chiama st.rerun() (Streamlit rilancia lo script automaticamente dopo il callback)
+    Reset esplicito dei filtri: imposta tutti i widget allo stato di avvio
+    (come se l'utente li avesse materialmente selezionati uno per uno).
+    Preserva uploaded_file_bytes (file caricato) e pulisce i micro-checkbox.
     """
-    # pulisci URL (rimuove anche 'state')
-    clear_all_query_params()
 
-    # lista di keys da preservare (non toccare)
-    keep = {"file_uploader", "uploaded_file_bytes", "_skip_url_save_once"}
+    # 1) Pulisci i query params nell'URL (compreso 'state')
+    try:
+        clear_all_query_params()
+    except Exception:
+        pass
 
-    # rimuovi tutti gli altri valori dalla session_state
+    # 2) preserva il file caricato (se presente)
+    preserved_file = st.session_state.get("uploaded_file_bytes", None)
+
+    # 3) calcola i default dinamici coerenti con l'avvio dell'app
+    today = datetime.datetime.now(timezone)
+    # ciclo default: il trimestre corrente
+    default_cycle_idx = 1 + (today.month - 1) // 3
+    ciclo_opts = [
+        "Tutti",
+        "Ciclo 1 (Gen-Feb-Mar)",
+        "Ciclo 2 (Apr-Mag-Giu)",
+        "Ciclo 3 (Lug-Ago-Set)",
+        "Ciclo 4 (Ott-Nov-Dic)",
+    ]
+    ciclo_default = ciclo_opts[default_cycle_idx]
+
+    # giorno default: giorno corrente (lun-ven) o "sempre" nel weekend
+    giorni_settimana = ["lunedì","martedì","mercoledì","giovedì","venerdì"]
+    giorno_default = giorni_settimana[today.weekday()] if today.weekday() < 5 else "sempre"
+
+    # 4) DEFAULTS espliciti (corrispondono alla "fotografia" di avvio)
+    defaults = {
+        "ciclo_scelto": ciclo_default,
+        "filtro_ultima_visita": "Nessuno",
+        "mese_limite_visita": "Nessuno",
+        "filtro_spec": DEFAULT_SPEC.copy(),
+        "filtro_target": "In target",
+        "filtro_visto": "Non Visto",
+        "giorno_scelto": giorno_default,
+        "fascia_oraria": "Personalizzato",
+        "custom_start": None,
+        "custom_end": None,
+        "provincia_scelta": "Ovunque",
+        "microarea_scelta": [],
+        "search_query": "",
+    }
+
+    # 5) svuota session_state e reinserisci i default (ma non cancellare file salvato)
     for k in list(st.session_state.keys()):
-        if k not in keep:
-            st.session_state.pop(k, None)
+        try:
+            del st.session_state[k]
+        except Exception:
+            pass
 
-    # segnala al flusso principale di non riscrivere lo state nell'URL in questo rerun
+    # reinserisci il file salvato (se c'era)
+    if preserved_file is not None:
+        st.session_state["uploaded_file_bytes"] = preserved_file
+
+    # imposta tutti i default previsti
+    for k, v in defaults.items():
+        st.session_state[k] = v
+
+    # 6) assicurati che tutti i checkbox microarea siano deselezionati
+    try:
+        for sk in list(st.session_state.keys()):
+            if sk.startswith("micro_chk_"):
+                st.session_state[sk] = False
+    except Exception:
+        pass
+
+    # 7) segnala al flusso principale di non riscrivere lo state nell'URL in questo rerun
     st.session_state["_skip_url_save_once"] = True
 
-    # Fine della funzione — il rerun avverrà subito dopo la callback del pulsante
+    # Nota: non chiamiamo st.rerun() esplicitamente — Streamlit esegue un rerun dopo il callback.
 
 def toggle_specialisti():
     current = st.session_state.get("filtro_spec", DEFAULT_SPEC)

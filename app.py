@@ -9,23 +9,6 @@ import json
 import urllib.parse
 import hashlib
 from typing import Optional
-# --- DEBUG ENV (RIMUOVERE DOPO) ---
-import streamlit as _st_debug, sys, platform
-try:
-    _st_debug.write("**DEBUG ENV — Informazioni runtime**")
-    _st_debug.write("Streamlit (runtime):", _st_debug.__version__)
-except Exception:
-    pass
-_st_debug.write("Python:", sys.version.splitlines()[0])
-_st_debug.write("Platform:", platform.platform())
-for pkg in ("pandas","st_aggrid","openpyxl","pytz"):
-    try:
-        __import__(pkg)
-        _st_debug.write(f"{pkg}: OK")
-    except Exception as e:
-        _st_debug.write(f"{pkg}: MANCANTE — {e}")
-_st_debug.write("Session state keys:", list(_st_debug.session_state.keys()))
-# --------------------------------------------
 
 # -------------------- COSTANTI --------------------
 timezone = pytz.timezone("Europe/Rome")
@@ -218,8 +201,22 @@ div.stButton>button:hover{background:#0056b3;}
 st.title("📋 Filtro Medici - Ricevimento Settimanale")
 
 # ---------- CARICAMENTO FILE ----------------------------------------------------
+# Uploader: manteniamo il widget ma salviamo i bytes reali in session_state sotto un key separato
 file = st.file_uploader("Carica il file Excel", type=["xlsx"], key="file_uploader")
-if not file:
+
+# Se l'utente ha appena caricato un file, salva i bytes in session_state in modo sicuro
+if file is not None:
+    try:
+        st.session_state["uploaded_file_bytes"] = file.getvalue()
+    except Exception:
+        # fallback: se getvalue dovesse fallire, non blocchiamo l'app
+        pass
+
+# preferisci usare il file memorizzato in session_state (se esiste)
+file_bytes = st.session_state.get("uploaded_file_bytes", None)
+
+if file_bytes is None:
+    # nessun file caricato ancora: fermati come prima
     st.stop()
 
 # ---------- RESET FILTRI & PULSANTI RAPIDI --------------------------------------
@@ -235,7 +232,7 @@ def azzera_filtri():
     clear_all_query_params()
 
     # lista di keys da preservare (non toccare)
-    keep = {"file_uploader", "_skip_url_save_once"}
+    keep = {"file_uploader", "uploaded_file_bytes", "_skip_url_save_once"}
 
     # rimuovi tutti gli altri valori dalla session_state
     for k in list(st.session_state.keys()):
@@ -274,7 +271,7 @@ def load_excel(file_bytes: bytes):
     df = pd.read_excel(xls, sheet_name="MMG")
     return df
 
-df_mmg = load_excel(file.getvalue())
+df_mmg = load_excel(file_bytes)
 df_mmg.columns = df_mmg.columns.str.lower()
 
 if "provincia" in df_mmg.columns:

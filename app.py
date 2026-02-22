@@ -9,6 +9,23 @@ import json
 import urllib.parse
 import hashlib
 from typing import Optional
+# --- DEBUG ENV (RIMUOVERE DOPO) ---
+import streamlit as _st_debug, sys, platform
+try:
+    _st_debug.write("**DEBUG ENV — Informazioni runtime**")
+    _st_debug.write("Streamlit (runtime):", _st_debug.__version__)
+except Exception:
+    pass
+_st_debug.write("Python:", sys.version.splitlines()[0])
+_st_debug.write("Platform:", platform.platform())
+for pkg in ("pandas","st_aggrid","openpyxl","pytz"):
+    try:
+        __import__(pkg)
+        _st_debug.write(f"{pkg}: OK")
+    except Exception as e:
+        _st_debug.write(f"{pkg}: MANCANTE — {e}")
+_st_debug.write("Session state keys:", list(_st_debug.session_state.keys()))
+# --------------------------------------------
 
 # -------------------- COSTANTI --------------------
 timezone = pytz.timezone("Europe/Rome")

@@ -651,6 +651,21 @@ prov_sel = st.selectbox(
 if prov_sel.lower() != "ovunque" and "provincia" in df_filtrato.columns:
     df_filtrato = df_filtrato[df_filtrato["provincia"].str.lower() == prov_sel.lower()].copy()
 
+# ---------- ESCLUDI PROVINCE (multiselect) -------------------------------------
+prov_excl_raw = df_work.get("provincia", pd.Series([], dtype=str)).dropna().unique().tolist()
+prov_excl_opts = sorted([str(p).strip() for p in prov_excl_raw if str(p).strip() and str(p).lower() != "nan"])
+
+prov_escludi = st.multiselect(
+    "🚫 Escludi province",
+    prov_excl_opts,
+    default=st.session_state.get("prov_escludi", []),
+    key="prov_escludi",
+)
+
+if prov_escludi and "provincia" in df_filtrato.columns:
+    excl_set = {str(p).strip().lower() for p in prov_escludi}
+    df_filtrato = df_filtrato[~df_filtrato["provincia"].astype(str).str.strip().str.lower().isin(excl_set)].copy()
+
 # ---------- FILTRO "MOSTRA SOLO MEDICI VISTI PRIMA DI (INCLUSO)" ----------------
 mesi_cap = [m.capitalize() for m in mesi]
 mese_limite = st.selectbox(

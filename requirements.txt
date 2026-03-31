@@ -4,4 +4,5 @@ altair==5.5.0
 streamlit-aggrid==1.2.1.post2
 openpyxl==3.1.5
 pytz==2025.2
+openai
 streamlit-mic-recorder

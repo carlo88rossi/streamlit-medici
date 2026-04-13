@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
-from st_aggrid import AgGrid, GridOptionsBuilder
 from streamlit_mic_recorder import mic_recorder
+import altair as alt
 
 import datetime
 import re
@@ -281,10 +281,6 @@ def clear_all_query_params():
         del st.query_params[k]
 
 
-def clear_state_in_url():
-    _set_query_param("state", None)
-
-
 def _serialize_value(v):
     if isinstance(v, datetime.time):
         return v.strftime("%H:%M:%S")
@@ -377,6 +373,10 @@ def _default_custom_times_rounded(tz):
 
 
 def _normalize_custom_times_for_slider(tz, custom_start, custom_end):
+    now = _rounded_now.time(), end_dt.time()
+
+
+def _normalize_custom_times_for_slider(tz, custom_start, custom_end):
     now = _rounded_now_naive_local(tz)
     d = now.date()
     min_dt, max_dt = _slider_bounds_for_date(d)
@@ -425,13 +425,6 @@ div.stButton > button {
     font-size:1rem;
 }
 div.stButton > button:hover {background:#0056b3;}
-.ag-root-wrapper {
-    border:1px solid #dee2e6 !important;
-    border-radius:10px;
-    overflow:hidden;
-}
-.ag-header-cell-label {font-weight:bold;color:#343a40;}
-.ag-row {font-size:0.9rem;}
 
 #microarea-box div[data-testid="stCheckbox"] { margin:0 !important; padding:0 !important; }
 #microarea-box div[data-testid="stCheckbox"] label{
@@ -475,6 +468,52 @@ div.stButton > button:hover {background:#0056b3;}
     font-weight: 700;
     color: #374151;
 }
+
+.kpi-card {
+    padding: 12px 14px;
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(23,35,59,0.08);
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,0.04);
+    margin: 6px 0 14px 0;
+}
+.kpi-top {
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:10px;
+}
+.kpi-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #495057;
+    margin: 0;
+}
+.kpi-pct {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: #0d6efd;
+    margin: 0;
+    line-height: 1;
+}
+.kpi-bar-outer {
+    height: 14px;
+    background: #e9ecef;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+.kpi-bar-inner {
+    height: 100%;
+    background: linear-gradient(90deg, #198754, #0d6efd);
+    border-radius: 999px;
+    transition: width 500ms ease;
+}
+.kpi-sub {
+    margin-top: 6px;
+    font-size: 0.85rem;
+    color: #6c757d;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -505,18 +544,17 @@ def azzera_filtri():
 
     preserved_file = st.session_state.get("uploaded_file_bytes", None)
 
-    today = datetime.datetime.now(timezone)
-    default_cycle_idx = 1 + (today.month - 1) // 3
-    ciclo_opts = [
+    today_local = datetime.datetime.now(timezone)
+    default_cycle_idx_local = 1 + (today_local.month - 1) // 3
+    ciclo_opts_local = [
         "Tutti",
         "Ciclo 1 (Gen-Feb-Mar)",
         "Ciclo 2 (Apr-Mag-Giu)",
         "Ciclo 3 (Lug-Ago-Set)",
         "Ciclo 4 (Ott-Nov-Dic)",
     ]
-    ciclo_default = ciclo_opts[default_cycle_idx]
-
-    giorno_default = giorni_settimana[today.weekday()] if today.weekday() < 5 else "sempre"
+    ciclo_default = ciclo_opts_local[default_cycle_idx_local]
+    giorno_default = giorni_settimana[today_local.weekday()] if today_local.weekday() < 5 else "sempre"
 
     defaults = {
         "ciclo_scelto": ciclo_default,
@@ -533,6 +571,11 @@ def azzera_filtri():
         "microarea_scelta": [],
         "search_query": "",
         "prov_escludi": [],
+        "territorio_mode": "Microarea",
+        "territorio_top_n_microarea": 15,
+        "territorio_top_n_provincia": 15,
+        "territorio_min_tot_microarea": 1,
+        "territorio_min_tot_provincia": 1,
     }
 
     for k in list(st.session_state.keys()):
@@ -547,22 +590,16 @@ def azzera_filtri():
     for k, v in defaults.items():
         st.session_state[k] = v
 
-    try:
-        for sk in list(st.session_state.keys()):
-            if sk.startswith("micro_chk_"):
-                st.session_state[sk] = False
-    except Exception:
-        pass
+    for sk in list(st.session_state.keys()):
+        if sk.startswith("micro_chk_"):
+            st.session_state[sk] = False
 
     st.session_state["_skip_url_save_once"] = True
 
 
 def toggle_specialisti():
     current = st.session_state.get("filtro_spec", DEFAULT_SPEC)
-    if current == DEFAULT_SPEC:
-        st.session_state["filtro_spec"] = SPEC_EXTRA
-    else:
-        st.session_state["filtro_spec"] = DEFAULT_SPEC
+    st.session_state["filtro_spec"] = SPEC_EXTRA if current == DEFAULT_SPEC else DEFAULT_SPEC
 
 
 def seleziona_mmg():
@@ -585,15 +622,10 @@ def _normalize_columns(cols) -> list[str]:
 
 def _is_compatible_mmg_sheet(df: pd.DataFrame) -> bool:
     cols = _normalize_columns(df.columns)
-
     if "nome medico" not in cols:
         return False
-
     months_present = sum(1 for m in mesi if m in cols)
-    if months_present >= 6:
-        return True
-
-    return False
+    return months_present >= 6
 
 
 @cache_data
@@ -617,7 +649,6 @@ def load_excel(file_bytes: bytes):
                 pass
 
     compatible_candidates = []
-
     for sheet_name in xls.sheet_names:
         try:
             df = pd.read_excel(xls, sheet_name=sheet_name)
@@ -633,15 +664,12 @@ def load_excel(file_bytes: bytes):
         candidate_names = [name for name, _ in compatible_candidates]
         raise ValueError(
             "Trovati più fogli compatibili con la struttura MMG. "
-            f"Fogli compatibili: {candidate_names}. "
-            "Rendi univoco il nome del foglio oppure limita il file a un solo foglio MMG."
+            f"Fogli compatibili: {candidate_names}."
         )
 
     raise ValueError(
         "Foglio MMG non trovato. "
-        f"Fogli disponibili: {xls.sheet_names}. "
-        "Atteso un foglio chiamato 'MMG' oppure un foglio con colonne compatibili "
-        "(es. 'nome medico' e mesi da gennaio a dicembre)."
+        f"Fogli disponibili: {xls.sheet_names}."
     )
 
 
@@ -687,8 +715,7 @@ def build_all_microaree(df: pd.DataFrame) -> list[str]:
 
     filtered = []
     for x in raw_list:
-        up = x.strip().upper()
-        if up in parent_codes_with_variant:
+        if x.strip().upper() in parent_codes_with_variant:
             continue
         filtered.append(x)
 
@@ -726,7 +753,6 @@ def parse_interval(cell_value):
     if not m:
         return None, None
     start_str, end_str = m.groups()
-
     start_t = _parse_time_flexible(start_str)
     end_t = _parse_time_flexible(end_str)
     if start_t is None or end_t is None:
@@ -739,6 +765,66 @@ def interval_covers(cell_value, custom_start, custom_end):
     if start_t is None or end_t is None:
         return False
     return start_t <= custom_start and end_t >= custom_end
+
+
+def build_territory_coverage(df_source: pd.DataFrame, group_col: str, cycle_cols: list[str]) -> pd.DataFrame:
+    if group_col not in df_source.columns:
+        return pd.DataFrame()
+
+    work = df_source.copy()
+
+    work["_nome_norm"] = work.get("nome medico", pd.Series("", index=work.index)).astype(str).str.strip().str.lower()
+    work["_territorio"] = work.get(group_col, pd.Series("", index=work.index)).astype(str).str.strip()
+
+    work = work[
+        work["_nome_norm"].ne("") &
+        work["_territorio"].ne("") &
+        work["_territorio"].str.lower().ne("nan")
+    ].copy()
+
+    is_mmg = work.get("spec", pd.Series("", index=work.index)).astype(str).str.strip().str.upper() == "MMG"
+    is_in_target = work.get("in target", pd.Series("", index=work.index)).astype(str).str.strip().str.lower() == "x"
+    work = work[is_mmg & is_in_target].copy()
+
+    valid_cycle_cols = [c for c in cycle_cols if c in work.columns]
+
+    if valid_cycle_cols:
+        work["_seen"] = work[valid_cycle_cols].apply(
+            lambda r: any(str(v).strip().lower() in ["x", "v"] for v in r.values),
+            axis=1
+        )
+    else:
+        work["_seen"] = False
+
+    dedup = (
+        work.groupby(["_territorio", "_nome_norm"], as_index=False)["_seen"]
+        .max()
+        .copy()
+    )
+
+    summary = (
+        dedup.groupby("_territorio", as_index=False)
+        .agg(
+            medici_totali=("_nome_norm", "nunique"),
+            medici_visti=("_seen", "sum"),
+        )
+        .copy()
+    )
+
+    summary["medici_visti"] = summary["medici_visti"].astype(int)
+    summary["medici_totali"] = summary["medici_totali"].astype(int)
+    summary["medici_non_visti"] = summary["medici_totali"] - summary["medici_visti"]
+    summary["copertura_pct"] = (
+        (summary["medici_visti"] / summary["medici_totali"]) * 100
+    ).round(1)
+
+    summary = summary.rename(columns={"_territorio": group_col})
+    summary = summary.sort_values(
+        by=["copertura_pct", "medici_visti", "medici_totali", group_col],
+        ascending=[False, False, False, True]
+    ).reset_index(drop=True)
+
+    return summary
 
 
 # ---------- CALCOLO ULTIMA VISITA ----------------------------------------------
@@ -796,8 +882,8 @@ def apply_voice_filters(payload: dict):
     if action != "apply_filters":
         return "Nessuna modifica applicata."
 
-    today = datetime.datetime.now(timezone)
-    default_cycle_idx = 1 + (today.month - 1) // 3
+    today_local = datetime.datetime.now(timezone)
+    default_cycle_idx_local = 1 + (today_local.month - 1) // 3
     ciclo_opts_local = [
         "Tutti",
         "Ciclo 1 (Gen-Feb-Mar)",
@@ -805,8 +891,8 @@ def apply_voice_filters(payload: dict):
         "Ciclo 3 (Lug-Ago-Set)",
         "Ciclo 4 (Ott-Nov-Dic)",
     ]
-    ciclo_default = ciclo_opts_local[default_cycle_idx]
-    giorno_default = giorni_settimana[today.weekday()] if today.weekday() < 5 else "sempre"
+    ciclo_default = ciclo_opts_local[default_cycle_idx_local]
+    giorno_default = giorni_settimana[today_local.weekday()] if today_local.weekday() < 5 else "sempre"
 
     st.session_state["ciclo_scelto"] = ciclo_default
     st.session_state["filtro_ultima_visita"] = "Nessuno"
@@ -827,16 +913,7 @@ def apply_voice_filters(payload: dict):
         mk = "micro_chk_" + hashlib.md5(m.encode("utf-8")).hexdigest()[:10]
         st.session_state[mk] = False
 
-    scalar_keys = [
-        "giorno_scelto",
-        "provincia_scelta",
-        "filtro_visto",
-        "filtro_target",
-        "ciclo_scelto",
-        "search_query",
-    ]
-
-    for key in scalar_keys:
+    for key in ["giorno_scelto", "provincia_scelta", "filtro_visto", "filtro_target", "ciclo_scelto", "search_query"]:
         value = payload.get(key)
         if value is not None:
             st.session_state[key] = value
@@ -905,17 +982,12 @@ if "last_processed_audio_id" not in st.session_state:
 if audio and audio_id and audio_id != st.session_state["last_processed_audio_id"]:
     try:
         with st.spinner("Trascrivo e applico i filtri..."):
-            transcript = transcribe_voice_command_from_bytes(
-                audio_bytes=audio["bytes"],
-                suffix=".webm",
-            )
-
+            transcript = transcribe_voice_command_from_bytes(audio_bytes=audio["bytes"], suffix=".webm")
             payload = interpret_voice_command_to_filters(
                 command_text=transcript,
                 province_list=all_province,
                 microarea_list=all_microaree,
             )
-
             msg = apply_voice_filters(payload)
 
             st.session_state["last_voice_transcript"] = transcript
@@ -934,15 +1006,13 @@ if st.session_state.get("last_voice_transcript") or st.session_state.get("voice_
 
     if st.session_state.get("last_voice_transcript"):
         st.markdown(
-            f"<div><span class='voice-label'>Hai detto:</span> "
-            f"{st.session_state['last_voice_transcript']}</div>",
+            f"<div><span class='voice-label'>Hai detto:</span> {st.session_state['last_voice_transcript']}</div>",
             unsafe_allow_html=True,
         )
 
     if st.session_state.get("voice_feedback"):
         st.markdown(
-            f"<div style='margin-top:6px;'><span class='voice-label'>Esito:</span> "
-            f"{st.session_state['voice_feedback']}</div>",
+            f"<div style='margin-top:6px;'><span class='voice-label'>Esito:</span> {st.session_state['voice_feedback']}</div>",
             unsafe_allow_html=True,
         )
 
@@ -965,11 +1035,7 @@ month_cycles = {
     "Ciclo 3 (Lug-Ago-Set)": ["luglio", "agosto", "settembre"],
     "Ciclo 4 (Ott-Nov-Dic)": ["ottobre", "novembre", "dicembre"],
 }
-visto_cols = (
-    [m for m in mesi if m in df_mmg.columns]
-    if ciclo_scelto == "Tutti"
-    else month_cycles[ciclo_scelto]
-)
+visto_cols = [m for m in (mesi if ciclo_scelto == "Tutti" else month_cycles[ciclo_scelto]) if m in df_mmg.columns]
 
 
 # ---------- % MMG VISTI ---------------------------------------------------------
@@ -986,80 +1052,152 @@ try:
         total_mmg_target = int(df_tmp[base_mask]["_nome_norm"].nunique())
 
         def _row_has_visit_vals(vals):
-            for v in vals:
-                if str(v).strip().lower() in ["x", "v"]:
-                    return True
-            return False
+            return any(str(v).strip().lower() in ["x", "v"] for v in vals)
 
         seen_rows = df_tmp[ciclo_cols].apply(lambda r: _row_has_visit_vals(r.values), axis=1)
         seen_count = int(df_tmp[base_mask & seen_rows]["_nome_norm"].nunique())
-
         pct = int(round((seen_count / total_mmg_target) * 100)) if total_mmg_target > 0 else 0
 
         st.markdown(f"""
-        <style>
-        .mmg-mini-card {{
-            padding: 12px 14px;
-            border-radius: 12px;
-            box-shadow: 0 6px 18px rgba(23,35,59,0.08);
-            background: #ffffff;
-            border: 1px solid rgba(0,0,0,0.04);
-            margin: 6px 0 14px 0;
-        }}
-        .mmg-mini-top {{
-            display:flex;
-            justify-content:space-between;
-            align-items:baseline;
-            gap:10px;
-        }}
-        .mmg-mini-title {{
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: #495057;
-            margin: 0;
-        }}
-        .mmg-mini-pct {{
-            font-size: 1.6rem;
-            font-weight: 800;
-            color: #0d6efd;
-            margin: 0;
-            line-height: 1;
-        }}
-        .mmg-mini-bar-outer {{
-            height: 14px;
-            background: #e9ecef;
-            border-radius: 999px;
-            overflow: hidden;
-            margin-top: 10px;
-        }}
-        .mmg-mini-bar-inner {{
-            height: 100%;
-            width: {pct}%;
-            background: linear-gradient(90deg, #198754, #0d6efd);
-            border-radius: 999px;
-            transition: width 500ms ease;
-        }}
-        .mmg-mini-sub {{
-            margin-top: 6px;
-            font-size: 0.85rem;
-            color: #6c757d;
-        }}
-        </style>
-
-        <div class="mmg-mini-card">
-          <div class="mmg-mini-top">
-            <div class="mmg-mini-title">% MMG visti (ciclo)</div>
-            <div class="mmg-mini-pct">{pct}%</div>
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <div class="kpi-title">% MMG visti (ciclo)</div>
+            <div class="kpi-pct">{pct}%</div>
           </div>
-          <div class="mmg-mini-bar-outer" role="progressbar" aria-valuenow="{pct}" aria-valuemin="0" aria-valuemax="100">
-            <div class="mmg-mini-bar-inner"></div>
+          <div class="kpi-bar-outer">
+            <div class="kpi-bar-inner" style="width:{pct}%;"></div>
           </div>
-          <div class="mmg-mini-sub">{seen_count} / {total_mmg_target}</div>
+          <div class="kpi-sub">{seen_count} / {total_mmg_target}</div>
         </div>
         """, unsafe_allow_html=True)
-
 except Exception:
     pass
+
+
+# ---------- COPERTURA TERRITORIALE ----------------------------------------------
+with st.expander("📊 Copertura territoriale (MMG visti per microarea o provincia)", expanded=False):
+    territorio_mode = st.radio(
+        "Raggruppa per",
+        ["Microarea", "Provincia"],
+        horizontal=True,
+        key="territorio_mode",
+    )
+
+    territory_col = "microarea" if territorio_mode == "Microarea" else "provincia"
+    top_key = "territorio_top_n_microarea" if territorio_mode == "Microarea" else "territorio_top_n_provincia"
+    min_tot_key = "territorio_min_tot_microarea" if territorio_mode == "Microarea" else "territorio_min_tot_provincia"
+
+    coverage_df = build_territory_coverage(
+        df_source=df_mmg,
+        group_col=territory_col,
+        cycle_cols=visto_cols,
+    )
+
+    if coverage_df.empty:
+        st.info(f"Nessun dato disponibile per la vista per {territorio_mode.lower()}.")
+    else:
+        n_territori = len(coverage_df)
+        max_rows = min(50, n_territori)
+        top_n_default = min(15, max_rows)
+
+        if max_rows <= 5:
+            top_n = max_rows
+            st.caption(f"Territori disponibili: {max_rows}")
+        else:
+            if top_key not in st.session_state:
+                st.session_state[top_key] = top_n_default
+
+            st.session_state[top_key] = max(
+                5,
+                min(int(st.session_state[top_key]), max_rows)
+            )
+
+            top_n = st.slider(
+                f"Quanti {territorio_mode.lower()} mostrare",
+                min_value=5,
+                max_value=max_rows,
+                value=int(st.session_state[top_key]),
+                key=top_key,
+            )
+
+        max_medici_tot = int(max(1, coverage_df["medici_totali"].max()))
+
+        if min_tot_key not in st.session_state:
+            st.session_state[min_tot_key] = 1
+
+        st.session_state[min_tot_key] = max(
+            1,
+            min(int(st.session_state[min_tot_key]), max_medici_tot)
+        )
+
+        min_tot = st.number_input(
+            "Mostra solo territori con almeno questo numero di MMG",
+            min_value=1,
+            max_value=max_medici_tot,
+            value=int(st.session_state[min_tot_key]),
+            step=1,
+            key=min_tot_key,
+        )
+
+        view_df = coverage_df[coverage_df["medici_totali"] >= int(min_tot)].head(int(top_n)).copy()
+
+        if view_df.empty:
+            st.warning("Nessun territorio rispetta i criteri selezionati.")
+        else:
+            label_col = territory_col
+            view_df["copertura_label"] = view_df["copertura_pct"].map(lambda x: f"{x:.1f}%")
+
+            chart = alt.Chart(view_df).mark_bar(cornerRadiusEnd=4).encode(
+                x=alt.X(
+                    "copertura_pct:Q",
+                    title="Copertura %",
+                    scale=alt.Scale(domain=[0, 100]),
+                ),
+                y=alt.Y(
+                    f"{label_col}:N",
+                    sort="-x",
+                    title=None,
+                ),
+                tooltip=[
+                    alt.Tooltip(f"{label_col}:N", title=territorio_mode),
+                    alt.Tooltip("copertura_pct:Q", title="Copertura %", format=".1f"),
+                    alt.Tooltip("medici_visti:Q", title="Visti"),
+                    alt.Tooltip("medici_non_visti:Q", title="Non visti"),
+                    alt.Tooltip("medici_totali:Q", title="Totali"),
+                ],
+            ).properties(
+                height=max(280, min(900, len(view_df) * 32))
+            )
+
+            text = alt.Chart(view_df).mark_text(
+                align="left",
+                baseline="middle",
+                dx=5,
+            ).encode(
+                x=alt.X("copertura_pct:Q"),
+                y=alt.Y(f"{label_col}:N", sort="-x"),
+                text="copertura_label:N",
+            )
+
+            st.altair_chart(chart + text, use_container_width=True)
+
+            st.caption(
+                "Base di calcolo: solo MMG in target, deduplicati per nominativo "
+                "all'interno del territorio selezionato. "
+                "Un medico è considerato visto se ha almeno una X o una V nel ciclo selezionato."
+            )
+
+            st.dataframe(
+                view_df.rename(columns={
+                    label_col: territorio_mode,
+                    "medici_totali": "MMG totali",
+                    "medici_visti": "MMG visti",
+                    "medici_non_visti": "MMG non visti",
+                    "copertura_pct": "Copertura %",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 
 # ---------- FUNZIONI VISITA ----------------------------------------------------
@@ -1096,10 +1234,7 @@ df_work = df_mmg.copy()
 if filtro_ultima != "Nessuno":
     sel_num = month_order[filtro_ultima.lower()]
     df_work = df_work[
-        df_work["ultima visita"]
-        .str.lower()
-        .map(lambda m: month_order.get(m, 0))
-        .le(sel_num)
+        df_work["ultima visita"].str.lower().map(lambda m: month_order.get(m, 0)).le(sel_num)
     ].copy()
 
 
@@ -1110,6 +1245,11 @@ filtro_spec = st.multiselect(
     default=st.session_state.get("filtro_spec", DEFAULT_SPEC),
     key="filtro_spec",
 )
+
+if "spec" not in df_work.columns:
+    st.error("Nel file manca la colonna 'spec'.")
+    st.stop()
+
 df_work = df_work[df_work["spec"].isin(filtro_spec)].copy()
 
 filtro_target = st.selectbox(
@@ -1225,7 +1365,7 @@ def filtra_giorno_fascia(df_base: pd.DataFrame):
 
 df_filtrato, colonne_da_mostrare = filtra_giorno_fascia(df_work)
 
-if fascia_oraria == "Personalizzato":
+if fascia_oraria == "Personalizzato" and custom_start is not None:
     ora_rif = custom_start.hour
     if ora_rif < 13:
         colonne_da_mostrare = [c for c in colonne_da_mostrare if "mattina" in c.lower()]
@@ -1238,6 +1378,7 @@ if not colonne_da_mostrare:
 colonne_da_mostrare = ["nome medico", "città"] + colonne_da_mostrare + [
     "indirizzo ambulatorio", "microarea", "provincia", "ultima visita"
 ]
+colonne_da_mostrare = [c for c in colonne_da_mostrare if c in df_filtrato.columns]
 
 
 # ---------- MICROAREE -----------------------------------------------------------
@@ -1328,10 +1469,7 @@ mese_limite = st.selectbox(
 if mese_limite != "Nessuno":
     sel_num_limite = month_order[mese_limite.lower()]
     df_filtrato = df_filtrato[
-        df_filtrato["ultima visita"]
-        .str.lower()
-        .map(lambda m: month_order.get(m, 0))
-        .le(sel_num_limite)
+        df_filtrato["ultima visita"].str.lower().map(lambda m: month_order.get(m, 0)).le(sel_num_limite)
     ].copy()
 
 
@@ -1367,6 +1505,11 @@ PERSIST_KEYS = [
     "filtro_ultima_visita",
     "mese_limite_visita",
     "prov_escludi",
+    "territorio_mode",
+    "territorio_top_n_microarea",
+    "territorio_top_n_provincia",
+    "territorio_min_tot_microarea",
+    "territorio_min_tot_provincia",
 ]
 
 if st.session_state.pop("_skip_url_save_once", False):
@@ -1398,7 +1541,7 @@ df_filtrato = df_filtrato.sort_values(by=["__ult", "__start"]).copy()
 df_filtrato.drop(columns=["__ult", "__start"], inplace=True, errors="ignore")
 
 
-# ---------- EMPTY ----------------------------------------------------------------
+# ---------- EMPTY ---------------------------------------------------------------
 if df_filtrato.empty:
     st.warning("Nessun risultato corrispondente ai filtri selezionati.")
     st.stop()
@@ -1413,60 +1556,18 @@ df_filtrato["nome medico"] = df_filtrato.apply(annotate_name, axis=1)
 st.write(f"**Numero medici:** {df_filtrato['nome medico'].astype(str).str.lower().nunique()} 🧮")
 st.write("### Medici disponibili")
 
-gb = GridOptionsBuilder.from_dataframe(df_filtrato[colonne_da_mostrare])
-gb.configure_default_column(
-    sortable=True,
-    filter=True,
-    resizable=True,
-    wrapText=True,
-    autoHeight=True,
-)
-gb.configure_grid_options(domLayout='autoHeight')
-gb.configure_grid_options(suppressSizeToFit=False)
+df_view = df_filtrato[colonne_da_mostrare].copy()
 
-for c in colonne_da_mostrare:
-    gb.configure_column(c, minWidth=120, autoHeaderHeight=True)
-
-grid_options = gb.build()
-grid_options["onFirstDataRendered"] = """
-function(event) {
-    event.api.sizeColumnsToFit();
-}
-"""
-
-st.markdown("""
-<style>
-.ag-theme-streamlit-light, .ag-theme-streamlit-dark {
-    width: 100% !important;
-    min-width: 100% !important;
-    overflow-x: auto;
-}
-.ag-header-cell-label {
-    white-space: normal !important;
-    text-overflow: clip !important;
-    overflow: visible !important;
-}
-.ag-cell {
-    white-space: normal !important;
-    text-overflow: clip !important;
-    overflow: visible !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-AgGrid(
-    df_filtrato[colonne_da_mostrare],
-    gridOptions=grid_options,
-    enable_enterprise_modules=False,
-    fit_columns_on_grid_load=True,
-    allow_unsafe_jscode=True,
-    height=500,
-    theme="streamlit",
+st.dataframe(
+    df_view,
+    use_container_width=True,
+    hide_index=True,
+    height=550,
 )
 
 st.download_button(
     "📥 Scarica risultati CSV",
-    df_filtrato[colonne_da_mostrare].to_csv(index=False).encode("utf-8"),
+    df_view.to_csv(index=False).encode("utf-8"),
     "risultati_medici.csv",
     "text/csv",
 )
